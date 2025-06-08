@@ -1,6 +1,6 @@
 # Succinct data structures in Rust
 
-![](https://github.com/kampersanda/sucds/actions/workflows/rust.yml/badge.svg)
+![](https://github.com/triblespace/sucds/actions/workflows/rust.yml/badge.svg)
 [![Documentation](https://docs.rs/sucds/badge.svg)](https://docs.rs/sucds)
 [![Crates.io](https://img.shields.io/crates/v/sucds.svg)](https://crates.io/crates/sucds)
 
