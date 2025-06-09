@@ -1,6 +1,5 @@
 use sucds::bit_vectors::{BitVector, Rank};
 use sucds::int_vectors::CompactVector;
-use sucds::Serializable;
 
 const DBLP_PSEF_STR: &str = include_str!("../data/texts/dblp.1MiB.txt");
 const DNA_PSEF_STR: &str = include_str!("../data/texts/dna.1MiB.txt");

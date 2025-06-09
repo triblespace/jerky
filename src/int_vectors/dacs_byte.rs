@@ -2,7 +2,6 @@
 #![cfg(target_pointer_width = "64")]
 
 use std::convert::TryFrom;
-use std::io::{Read, Write};
 
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
@@ -10,7 +9,6 @@ use num_traits::ToPrimitive;
 use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
-use crate::Serializable;
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
@@ -273,22 +271,17 @@ impl Iterator for Iter<'_> {
     }
 }
 
-impl Serializable for DacsByte {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.data.serialize_into(&mut writer)?;
-        mem += self.flags.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let data = Vec::<Vec<u8>>::deserialize_from(&mut reader)?;
-        let flags = Vec::<Rank9Sel>::deserialize_from(&mut reader)?;
-        Ok(Self { data, flags })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.data.size_in_bytes() + self.flags.size_in_bytes()
+impl DacsByte {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        std::mem::size_of::<usize>()
+            + self
+                .data
+                .iter()
+                .map(|v| std::mem::size_of::<usize>() + v.len())
+                .sum::<usize>()
+            + std::mem::size_of::<usize>()
+            + self.flags.iter().map(|f| f.size_in_bytes()).sum::<usize>()
     }
 }
 
@@ -358,16 +351,5 @@ mod tests {
             e.err().map(|x| x.to_string()),
             Some("vals must consist only of values castable into usize.".to_string())
         );
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let seq = DacsByte::from_slice(&[0xFFFFF, 0xFF, 0xF, 0xFFFFF, 0xF]).unwrap();
-        let size = seq.serialize_into(&mut bytes).unwrap();
-        let other = DacsByte::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(seq, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, seq.size_in_bytes());
     }
 }

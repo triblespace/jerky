@@ -3,13 +3,10 @@
 
 pub mod inner;
 
-use std::io::{Read, Write};
-
 use anyhow::Result;
 
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::BitVector;
-use crate::Serializable;
 use inner::Rank9SelIndex;
 
 /// Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
@@ -53,7 +50,7 @@ use inner::Rank9SelIndex;
 /// # References
 ///
 ///  - S. Vigna, "Broadword implementation of rank/select queries," In WEA, 2008.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9Sel {
     bv: BitVector,
     rs: Rank9SelIndex,
@@ -277,21 +274,9 @@ impl Select for Rank9Sel {
     }
 }
 
-impl Serializable for Rank9Sel {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.bv.serialize_into(&mut writer)?;
-        mem += self.rs.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let bv = BitVector::deserialize_from(&mut reader)?;
-        let rs = Rank9SelIndex::deserialize_from(&mut reader)?;
-        Ok(Self { bv, rs })
-    }
-
-    fn size_in_bytes(&self) -> usize {
+impl Rank9Sel {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
         self.bv.size_in_bytes() + self.rs.size_in_bytes()
     }
 }
@@ -346,18 +331,5 @@ mod tests {
         assert_eq!(bv.select1(0), Some(0));
         assert_eq!(bv.select1(1), Some(3));
         assert_eq!(bv.select1(2), None);
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let bv = Rank9Sel::from_bits([false, true, true, false, true])
-            .select1_hints()
-            .select0_hints();
-        let size = bv.serialize_into(&mut bytes).unwrap();
-        let other = Rank9Sel::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(bv, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, bv.size_in_bytes());
     }
 }

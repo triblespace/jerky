@@ -1,14 +1,12 @@
 //! Updatable compact vector in which each integer is represented in a fixed number of bits.
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
-
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vectors::BitVector;
 use crate::int_vectors::prelude::*;
-use crate::{utils, Serializable};
+use crate::utils;
 
 /// Updatable compact vector in which each integer is represented in a fixed number of bits.
 ///
@@ -508,23 +506,10 @@ impl std::fmt::Debug for CompactVector {
     }
 }
 
-impl Serializable for CompactVector {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = self.chunks.serialize_into(&mut writer)?;
-        mem += self.len.serialize_into(&mut writer)?;
-        mem += self.width.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let chunks = BitVector::deserialize_from(&mut reader)?;
-        let len = usize::deserialize_from(&mut reader)?;
-        let width = usize::deserialize_from(&mut reader)?;
-        Ok(Self { chunks, len, width })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.chunks.size_in_bytes() + usize::size_of().unwrap() * 2
+impl CompactVector {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        self.chunks.size_in_bytes() + std::mem::size_of::<usize>() * 2
     }
 }
 
@@ -657,16 +642,5 @@ mod tests {
     fn test_64b_from_int() {
         let cv = CompactVector::from_int(42, 1, 64).unwrap();
         assert_eq!(cv.get_int(0), Some(42));
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let cv = CompactVector::from_slice(&[7, 334, 1, 2]).unwrap();
-        let size = cv.serialize_into(&mut bytes).unwrap();
-        let other = CompactVector::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(cv, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, cv.size_in_bytes());
     }
 }

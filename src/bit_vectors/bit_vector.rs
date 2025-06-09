@@ -1,13 +1,10 @@
 //! Updatable bit vector in a plain format, supporting some utilities such as chunking and predecessor queries.
 pub mod unary;
 
-use std::io::{Read, Write};
-
 use anyhow::{anyhow, Result};
 
 use crate::bit_vectors::prelude::*;
 use crate::broadword;
-use crate::Serializable;
 use unary::UnaryIter;
 
 /// The number of bits in a machine word.
@@ -932,21 +929,11 @@ impl std::fmt::Debug for BitVector {
     }
 }
 
-impl Serializable for BitVector {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = self.words.serialize_into(&mut writer)?;
-        mem += self.len.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let words = Vec::<usize>::deserialize_from(&mut reader)?;
-        let len = usize::deserialize_from(&mut reader)?;
-        Ok(Self { words, len })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.words.size_in_bytes() + usize::size_of().unwrap()
+impl BitVector {
+    /// Returns the number of bytes required for serializing this bit vector
+    /// in the former copy-based format.
+    pub fn size_in_bytes(&self) -> usize {
+        std::mem::size_of::<usize>() * (self.words.len() + 2)
     }
 }
 
@@ -1033,16 +1020,5 @@ mod tests {
         // Test a case that can see the next block (but not exist).
         let bv = BitVector::from_bit(true, 64);
         assert_eq!(bv.get_word64(60), Some(0b1111));
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let bv = BitVector::from_bits([false, true, false, false, true]);
-        let size = bv.serialize_into(&mut bytes).unwrap();
-        let other = BitVector::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(bv, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, bv.size_in_bytes());
     }
 }

@@ -37,9 +37,10 @@
 //!
 //! Throughout this document, we write $`\log_2`$ with $`\lg`$.
 //!
-//! ## Serialization/deserialization
+//! ## Serialization
 //!
-//! All the data structures can be serialized or deserialized through the [`Serializable`] trait.
+//! The previous copying based serialization infrastructure has been removed and
+//! will be replaced with zero‑copy utilities in the future.
 //!
 //! ## Limitation
 //!
@@ -56,10 +57,7 @@ pub mod char_sequences;
 pub mod int_vectors;
 mod intrinsics;
 pub mod mii_sequences;
-pub mod serial;
 pub mod utils;
-
-pub use serial::Serializable;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std
 // containers with different type annotations.
