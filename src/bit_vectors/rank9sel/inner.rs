@@ -464,8 +464,8 @@ impl Rank9SelIndex {
 }
 
 impl Rank9SelIndex {
-    /// Deserializes the index from zero-copy [`Bytes`].
-    pub fn deserialize_from_bytes(mut bytes: Bytes) -> Result<Self> {
+    /// Reconstructs the index from zero-copy [`Bytes`].
+    pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
         let len = *bytes
             .view_prefix::<usize>()
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -515,6 +515,29 @@ impl Rank9SelIndex {
         })
     }
 
+    /// Serializes the index metadata and data into a [`Bytes`] buffer.
+    pub fn to_bytes(&self) -> Bytes {
+        let mut store: Vec<usize> = Vec::new();
+        store.push(self.len);
+        store.push(self.block_rank_pairs.len());
+        store.extend_from_slice(self.block_rank_pairs.as_ref());
+        if let Some(ref v) = self.select1_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        if let Some(ref v) = self.select0_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        Bytes::from_source(store)
+    }
+
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
         let mut mem = std::mem::size_of::<usize>() * 2;
@@ -538,29 +561,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_zero_copy_deserialize() {
+    fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([false, true, true, false, true]);
         let idx = Rank9SelIndex::new(&bv).select1_hints().select0_hints();
-        let mut store: Vec<usize> = Vec::new();
-        store.push(idx.len);
-        store.push(idx.block_rank_pairs.len());
-        store.extend_from_slice(idx.block_rank_pairs.as_ref());
-        if let Some(ref v) = idx.select1_hints {
-            store.push(1);
-            store.push(v.len());
-            store.extend_from_slice(v.as_ref());
-        } else {
-            store.push(0);
-        }
-        if let Some(ref v) = idx.select0_hints {
-            store.push(1);
-            store.push(v.len());
-            store.extend_from_slice(v.as_ref());
-        } else {
-            store.push(0);
-        }
-        let bytes = Bytes::from_source(store);
-        let other = Rank9SelIndex::deserialize_from_bytes(bytes).unwrap();
+        let bytes = idx.to_bytes();
+        let other = Rank9SelIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
     }
 }
