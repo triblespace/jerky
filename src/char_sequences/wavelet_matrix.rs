@@ -2,15 +2,13 @@
 //! supporting some queries such as ranking, selection, and intersection.
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
 use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::{Access, BitVector, Build, NumBits, Rank, Select};
+use crate::bit_vectors::{Access, BitVector, Build, NumBits, Rank, Rank9Sel, Select};
 use crate::int_vectors::CompactVector;
 use crate::utils;
-use crate::Serializable;
 
 /// Time- and space-efficient data structure for a sequence of integers,
 /// supporting some queries such as ranking, selection, and intersection.
@@ -600,24 +598,12 @@ where
     }
 }
 
-impl<B> Serializable for WaveletMatrix<B>
-where
-    B: Serializable,
-{
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = self.layers.serialize_into(&mut writer)?;
-        mem += self.alph_size.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let layers = Vec::<B>::deserialize_from(&mut reader)?;
-        let alph_size = usize::deserialize_from(&mut reader)?;
-        Ok(Self { layers, alph_size })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.layers.size_in_bytes() + usize::size_of().unwrap()
+impl WaveletMatrix<Rank9Sel> {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        std::mem::size_of::<usize>()
+            + self.layers.iter().map(|l| l.size_in_bytes()).sum::<usize>()
+            + std::mem::size_of::<usize>()
     }
 }
 
@@ -661,20 +647,5 @@ mod test {
 
         let ranges = vec![0..3, 3..6];
         assert_eq!(wm.intersect(&ranges, 1), Some(vec!['o' as usize]));
-    }
-
-    #[test]
-    fn test_serialize() {
-        let text = "tobeornottobethatisthequestion";
-        let mut seq = CompactVector::new(8).unwrap();
-        seq.extend(text.chars().map(|c| c as usize)).unwrap();
-        let wm = WaveletMatrix::<Rank9Sel>::new(seq).unwrap();
-
-        let mut bytes = vec![];
-        let size = wm.serialize_into(&mut bytes).unwrap();
-        let other = WaveletMatrix::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(wm, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, wm.size_in_bytes());
     }
 }

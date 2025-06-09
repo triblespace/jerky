@@ -1,43 +1,69 @@
 //! Internal index structure of [`Rank9Sel`](super::Rank9Sel).
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
+use anybytes::{Bytes, View};
 
 use anyhow::Result;
 
 use crate::bit_vectors::BitVector;
 use crate::bit_vectors::NumBits;
-use crate::{broadword, Serializable};
+use crate::broadword;
 
 const BLOCK_LEN: usize = 8;
 const SELECT_ONES_PER_HINT: usize = 64 * BLOCK_LEN * 2;
 const SELECT_ZEROS_PER_HINT: usize = SELECT_ONES_PER_HINT;
 
 /// The index implementation of [`Rank9Sel`](super::Rank9Sel) separated from the bit vector.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9SelIndex {
+    len: usize,
+    block_rank_pairs: View<[usize]>,
+    select1_hints: Option<View<[usize]>>,
+    select0_hints: Option<View<[usize]>>,
+}
+
+/// Builder for [`Rank9SelIndex`].
+#[derive(Default, Debug, Clone)]
+pub struct Rank9SelIndexBuilder {
     len: usize,
     block_rank_pairs: Vec<usize>,
     select1_hints: Option<Vec<usize>>,
     select0_hints: Option<Vec<usize>>,
 }
 
-impl Rank9SelIndex {
-    /// Creates a new vector from input bit vector `bv`.
+impl Rank9SelIndexBuilder {
+    /// Creates a builder from the given bit vector.
     pub fn new(bv: &BitVector) -> Self {
         Self::build_rank(bv)
     }
 
-    /// Builds an index for faster `select1`.
-    #[must_use]
+    /// Builds an index for faster `select1` queries.
     pub fn select1_hints(self) -> Self {
         self.build_select1()
     }
 
-    /// Builds an index for faster `select0`.
-    #[must_use]
+    /// Builds an index for faster `select0` queries.
     pub fn select0_hints(self) -> Self {
         self.build_select0()
+    }
+
+    /// Freezes and returns [`Rank9SelIndex`].
+    pub fn build(self) -> Rank9SelIndex {
+        let block_rank_pairs = Bytes::from_source(self.block_rank_pairs)
+            .view::<[usize]>()
+            .unwrap();
+        let select1_hints = self
+            .select1_hints
+            .map(|v| Bytes::from_source(v).view::<[usize]>().unwrap());
+        let select0_hints = self
+            .select0_hints
+            .map(|v| Bytes::from_source(v).view::<[usize]>().unwrap());
+        Rank9SelIndex {
+            len: self.len,
+            block_rank_pairs,
+            select1_hints,
+            select0_hints,
+        }
     }
 
     fn build_rank(bv: &BitVector) -> Self {
@@ -118,6 +144,49 @@ impl Rank9SelIndex {
 
         self.select0_hints = Some(select0_hints);
         self
+    }
+
+    #[inline(always)]
+    fn num_blocks(&self) -> usize {
+        self.block_rank_pairs.len() / 2 - 1
+    }
+
+    #[inline(always)]
+    fn block_rank(&self, block: usize) -> usize {
+        self.block_rank_pairs[block * 2]
+    }
+
+    #[inline(always)]
+    fn block_rank0(&self, block: usize) -> usize {
+        block * BLOCK_LEN * 64 - self.block_rank(block)
+    }
+}
+
+impl Rank9SelIndex {
+    /// Creates a new vector from input bit vector `bv`.
+    pub fn new(bv: &BitVector) -> Self {
+        Rank9SelIndexBuilder::new(bv).build()
+    }
+
+    /// Builds an index for faster `select1`.
+    #[must_use]
+    pub fn select1_hints(self) -> Self {
+        self.into_builder().select1_hints().build()
+    }
+
+    /// Builds an index for faster `select0`.
+    #[must_use]
+    pub fn select0_hints(self) -> Self {
+        self.into_builder().select0_hints().build()
+    }
+
+    fn into_builder(self) -> Rank9SelIndexBuilder {
+        Rank9SelIndexBuilder {
+            len: self.len,
+            block_rank_pairs: self.block_rank_pairs.as_ref().to_vec(),
+            select1_hints: self.select1_hints.map(|v| v.as_ref().to_vec()),
+            select0_hints: self.select0_hints.map(|v| v.as_ref().to_vec()),
+        }
     }
 
     /// Gets the number of bits set.
@@ -394,21 +463,50 @@ impl Rank9SelIndex {
     }
 }
 
-impl Serializable for Rank9SelIndex {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.len.serialize_into(&mut writer)?;
-        mem += self.block_rank_pairs.serialize_into(&mut writer)?;
-        mem += self.select1_hints.serialize_into(&mut writer)?;
-        mem += self.select0_hints.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let len = usize::deserialize_from(&mut reader)?;
-        let block_rank_pairs = Vec::<usize>::deserialize_from(&mut reader)?;
-        let select1_hints = Option::<Vec<usize>>::deserialize_from(&mut reader)?;
-        let select0_hints = Option::<Vec<usize>>::deserialize_from(&mut reader)?;
+impl Rank9SelIndex {
+    /// Deserializes the index from zero-copy [`Bytes`].
+    pub fn deserialize_from_bytes(mut bytes: Bytes) -> Result<Self> {
+        let len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let brp_len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let block_rank_pairs = bytes
+            .view_prefix_with_elems::<[usize]>(brp_len)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let has_select1 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let select1_hints = if has_select1 {
+            let l = *bytes
+                .view_prefix::<usize>()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            Some(
+                bytes
+                    .view_prefix_with_elems::<[usize]>(l)
+                    .map_err(|e| anyhow::anyhow!(e))?,
+            )
+        } else {
+            None
+        };
+        let has_select0 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let select0_hints = if has_select0 {
+            let l = *bytes
+                .view_prefix::<usize>()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            Some(
+                bytes
+                    .view_prefix_with_elems::<[usize]>(l)
+                    .map_err(|e| anyhow::anyhow!(e))?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             len,
             block_rank_pairs,
@@ -417,10 +515,52 @@ impl Serializable for Rank9SelIndex {
         })
     }
 
-    fn size_in_bytes(&self) -> usize {
-        self.len.size_in_bytes()
-            + self.block_rank_pairs.size_in_bytes()
-            + self.select1_hints.size_in_bytes()
-            + self.select0_hints.size_in_bytes()
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        let mut mem = std::mem::size_of::<usize>() * 2;
+        mem += std::mem::size_of::<usize>() * self.block_rank_pairs.len();
+        mem += std::mem::size_of::<bool>();
+        if let Some(hints) = &self.select1_hints {
+            mem += std::mem::size_of::<usize>();
+            mem += std::mem::size_of::<usize>() * hints.len();
+        }
+        mem += std::mem::size_of::<bool>();
+        if let Some(hints) = &self.select0_hints {
+            mem += std::mem::size_of::<usize>();
+            mem += std::mem::size_of::<usize>() * hints.len();
+        }
+        mem
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zero_copy_deserialize() {
+        let bv = BitVector::from_bits([false, true, true, false, true]);
+        let idx = Rank9SelIndex::new(&bv).select1_hints().select0_hints();
+        let mut store: Vec<usize> = Vec::new();
+        store.push(idx.len);
+        store.push(idx.block_rank_pairs.len());
+        store.extend_from_slice(idx.block_rank_pairs.as_ref());
+        if let Some(ref v) = idx.select1_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        if let Some(ref v) = idx.select0_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        let bytes = Bytes::from_source(store);
+        let other = Rank9SelIndex::deserialize_from_bytes(bytes).unwrap();
+        assert_eq!(idx, other);
     }
 }

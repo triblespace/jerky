@@ -3,14 +3,11 @@
 
 pub mod inner;
 
-use std::io::{Read, Write};
-
 use anyhow::Result;
 
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use crate::bit_vectors::BitVector;
-use crate::Serializable;
 use inner::DArrayIndex;
 
 /// Constant-time select data structure over integer sets with the dense array technique.
@@ -318,29 +315,16 @@ impl Select for DArray {
     }
 }
 
-impl Serializable for DArray {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.bv.serialize_into(&mut writer)?;
-        mem += self.s1.serialize_into(&mut writer)?;
-        mem += self.s0.serialize_into(&mut writer)?;
-        mem += self.r9.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let bv = BitVector::deserialize_from(&mut reader)?;
-        let s1 = DArrayIndex::deserialize_from(&mut reader)?;
-        let s0 = Option::<DArrayIndex>::deserialize_from(&mut reader)?;
-        let r9 = Option::<Rank9SelIndex>::deserialize_from(&mut reader)?;
-        Ok(Self { bv, s1, s0, r9 })
-    }
-
-    fn size_in_bytes(&self) -> usize {
+impl DArray {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
         self.bv.size_in_bytes()
             + self.s1.size_in_bytes()
-            + self.s0.size_in_bytes()
-            + self.r9.size_in_bytes()
+            + self.s0.as_ref().map_or(std::mem::size_of::<bool>(), |x| {
+                std::mem::size_of::<bool>() + x.size_in_bytes()
+            })
+            + std::mem::size_of::<bool>()
+            + self.r9.as_ref().map_or(0, |r| r.size_in_bytes())
     }
 }
 
@@ -373,16 +357,5 @@ mod tests {
     fn test_select1() {
         let da = DArray::from_bits([false, true, false]);
         da.select0(0);
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let da = DArray::from_bits([true, false, false, true]);
-        let size = da.serialize_into(&mut bytes).unwrap();
-        let other = DArray::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(da, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, da.size_in_bytes());
     }
 }

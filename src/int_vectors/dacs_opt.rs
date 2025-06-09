@@ -1,15 +1,12 @@
 //! Compressed integer sequence using Directly Addressable Codes (DACs) with optimal assignment.
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
-
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel};
 use crate::int_vectors::{Access, Build, CompactVector, NumVals};
 use crate::utils;
-use crate::Serializable;
 
 /// Compressed integer sequence using Directly Addressable Codes (DACs) with optimal assignment.
 ///
@@ -382,22 +379,13 @@ impl Iterator for Iter<'_> {
     }
 }
 
-impl Serializable for DacsOpt {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.data.serialize_into(&mut writer)?;
-        mem += self.flags.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let data = Vec::<CompactVector>::deserialize_from(&mut reader)?;
-        let flags = Vec::<Rank9Sel>::deserialize_from(&mut reader)?;
-        Ok(Self { data, flags })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.data.size_in_bytes() + self.flags.size_in_bytes()
+impl DacsOpt {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        std::mem::size_of::<usize>()
+            + self.data.iter().map(|cv| cv.size_in_bytes()).sum::<usize>()
+            + std::mem::size_of::<usize>()
+            + self.flags.iter().map(|f| f.size_in_bytes()).sum::<usize>()
     }
 }
 
@@ -528,16 +516,5 @@ mod tests {
             e.err().map(|x| x.to_string()),
             Some("vals must consist only of values castable into usize.".to_string())
         );
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let seq = DacsOpt::from_slice(&[0b11, 0b1, 0b1111, 0b11], None).unwrap();
-        let size = seq.serialize_into(&mut bytes).unwrap();
-        let other = DacsOpt::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(seq, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, seq.size_in_bytes());
     }
 }

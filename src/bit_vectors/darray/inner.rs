@@ -1,13 +1,9 @@
 //! Internal index structure of [`DArray`](super::DArray).
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
-
-use anyhow::Result;
-
 use crate::bit_vectors::BitVector;
 use crate::bit_vectors::NumBits;
-use crate::{broadword, Serializable};
+use crate::broadword;
 
 const BLOCK_LEN: usize = 1024;
 const SUBBLOCK_LEN: usize = 32;
@@ -231,38 +227,17 @@ impl DArrayIndex {
     }
 }
 
-impl Serializable for DArrayIndex {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.block_inventory.serialize_into(&mut writer)?;
-        mem += self.subblock_inventory.serialize_into(&mut writer)?;
-        mem += self.overflow_positions.serialize_into(&mut writer)?;
-        mem += self.num_positions.serialize_into(&mut writer)?;
-        mem += self.over_one.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let block_inventory = Vec::<isize>::deserialize_from(&mut reader)?;
-        let subblock_inventory = Vec::<u16>::deserialize_from(&mut reader)?;
-        let overflow_positions = Vec::<usize>::deserialize_from(&mut reader)?;
-        let num_positions = usize::deserialize_from(&mut reader)?;
-        let over_one = bool::deserialize_from(&mut reader)?;
-        Ok(Self {
-            block_inventory,
-            subblock_inventory,
-            overflow_positions,
-            num_positions,
-            over_one,
-        })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.block_inventory.size_in_bytes()
-            + self.subblock_inventory.size_in_bytes()
-            + self.overflow_positions.size_in_bytes()
-            + usize::size_of().unwrap()
-            + bool::size_of().unwrap()
+impl DArrayIndex {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        std::mem::size_of::<usize>()
+            + std::mem::size_of::<isize>() * self.block_inventory.len()
+            + std::mem::size_of::<usize>()
+            + std::mem::size_of::<u16>() * self.subblock_inventory.len()
+            + std::mem::size_of::<usize>()
+            + std::mem::size_of::<usize>() * self.overflow_positions.len()
+            + std::mem::size_of::<usize>()
+            + std::mem::size_of::<bool>()
     }
 }
 

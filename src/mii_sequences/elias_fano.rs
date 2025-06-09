@@ -3,14 +3,12 @@
 
 pub mod iter;
 
-use std::io::{Read, Write};
 use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
 use crate::bit_vectors::{Access, BitVector, DArray, NumBits, Select};
 use crate::broadword;
-use crate::Serializable;
 use iter::Iter;
 
 const LINEAR_SCAN_THRESHOLD: usize = 64;
@@ -500,33 +498,12 @@ impl EliasFano {
     }
 }
 
-impl Serializable for EliasFano {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.high_bits.serialize_into(&mut writer)?;
-        mem += self.low_bits.serialize_into(&mut writer)?;
-        mem += self.low_len.serialize_into(&mut writer)?;
-        mem += self.universe.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let high_bits = DArray::deserialize_from(&mut reader)?;
-        let low_bits = BitVector::deserialize_from(&mut reader)?;
-        let low_len = usize::deserialize_from(&mut reader)?;
-        let universe = usize::deserialize_from(&mut reader)?;
-        Ok(Self {
-            high_bits,
-            low_bits,
-            low_len,
-            universe,
-        })
-    }
-
-    fn size_in_bytes(&self) -> usize {
+impl EliasFano {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
         self.high_bits.size_in_bytes()
             + self.low_bits.size_in_bytes()
-            + usize::size_of().unwrap() * 2
+            + std::mem::size_of::<usize>() * 2
     }
 }
 
@@ -704,19 +681,6 @@ mod tests {
             e.err().map(|x| x.to_string()),
             Some("bits must contains one set bit at least.".to_string())
         );
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let ef = EliasFano::from_bits([false, true, true, true, false, true])
-            .unwrap()
-            .enable_rank();
-        let size = ef.serialize_into(&mut bytes).unwrap();
-        let other = EliasFano::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(ef, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, ef.size_in_bytes());
     }
 
     #[test]

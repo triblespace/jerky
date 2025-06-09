@@ -1,15 +1,12 @@
 //! Rank/Select data structure over very sparse bit vectors using the Elias-Fano scheme.
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
-
 use anyhow::{anyhow, Result};
 
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::BitVector;
 use crate::broadword;
 use crate::mii_sequences::{EliasFano, EliasFanoBuilder};
-use crate::Serializable;
 
 /// Rank/Select data structure over very sparse bit vectors, which is
 /// a specialized version of [EliasFano](crate::mii_sequences::EliasFano) for bit vectors.
@@ -347,34 +344,13 @@ impl Select for SArray {
     }
 }
 
-impl Serializable for SArray {
-    fn serialize_into<W: Write>(&self, mut writer: W) -> Result<usize> {
-        let mut mem = 0;
-        mem += self.ef.serialize_into(&mut writer)?;
-        mem += self.num_bits.serialize_into(&mut writer)?;
-        mem += self.num_ones.serialize_into(&mut writer)?;
-        mem += self.has_rank.serialize_into(&mut writer)?;
-        Ok(mem)
-    }
-
-    fn deserialize_from<R: Read>(mut reader: R) -> Result<Self> {
-        let ef = Option::<EliasFano>::deserialize_from(&mut reader)?;
-        let num_bits = usize::deserialize_from(&mut reader)?;
-        let num_ones = usize::deserialize_from(&mut reader)?;
-        let has_rank = bool::deserialize_from(&mut reader)?;
-        Ok(Self {
-            ef,
-            num_bits,
-            num_ones,
-            has_rank,
-        })
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.ef.size_in_bytes()
-            + self.num_bits.size_in_bytes()
-            + self.num_ones.size_in_bytes()
-            + self.has_rank.size_in_bytes()
+impl SArray {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        self.ef.as_ref().map_or(std::mem::size_of::<bool>(), |ef| {
+            std::mem::size_of::<bool>() + ef.size_in_bytes()
+        }) + std::mem::size_of::<usize>() * 2
+            + std::mem::size_of::<bool>()
     }
 }
 
@@ -433,16 +409,5 @@ mod tests {
             e.err().map(|x| x.to_string()),
             Some("select0 is not supported for SArray.".to_string())
         );
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let sa = SArray::from_bits([true, false, false, true]);
-        let size = sa.serialize_into(&mut bytes).unwrap();
-        let other = SArray::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(sa, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, sa.size_in_bytes());
     }
 }

@@ -1,5 +1,3 @@
-use sucds::Serializable;
-
 const DBLP_PSEF_STR: &str = include_str!("../data/lcps/dblp.1MiB.txt");
 const DNA_PSEF_STR: &str = include_str!("../data/lcps/dna.1MiB.txt");
 const PROTEINS_PSEF_STR: &str = include_str!("../data/lcps/proteins.1MiB.txt");

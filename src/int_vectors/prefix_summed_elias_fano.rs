@@ -1,14 +1,11 @@
 //! Compressed integer sequence with prefix-summed Elias-Fano encoding.
 #![cfg(target_pointer_width = "64")]
 
-use std::io::{Read, Write};
-
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::int_vectors::prelude::*;
 use crate::mii_sequences::{EliasFano, EliasFanoBuilder};
-use crate::Serializable;
 
 /// Compressed integer sequence with prefix-summed Elias-Fano encoding.
 ///
@@ -192,17 +189,9 @@ impl Access for PrefixSummedEliasFano {
     }
 }
 
-impl Serializable for PrefixSummedEliasFano {
-    fn serialize_into<W: Write>(&self, writer: W) -> Result<usize> {
-        self.ef.serialize_into(writer)
-    }
-
-    fn deserialize_from<R: Read>(reader: R) -> Result<Self> {
-        let ef = EliasFano::deserialize_from(reader)?;
-        Ok(Self { ef })
-    }
-
-    fn size_in_bytes(&self) -> usize {
+impl PrefixSummedEliasFano {
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
         self.ef.size_in_bytes()
     }
 }
@@ -251,16 +240,5 @@ mod tests {
             e.err().map(|x| x.to_string()),
             Some("vals must consist only of values castable into usize.".to_string())
         );
-    }
-
-    #[test]
-    fn test_serialize() {
-        let mut bytes = vec![];
-        let seq = PrefixSummedEliasFano::from_slice(&[5, 14, 334, 10]).unwrap();
-        let size = seq.serialize_into(&mut bytes).unwrap();
-        let other = PrefixSummedEliasFano::deserialize_from(&bytes[..]).unwrap();
-        assert_eq!(seq, other);
-        assert_eq!(size, bytes.len());
-        assert_eq!(size, seq.size_in_bytes());
     }
 }
