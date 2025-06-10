@@ -26,9 +26,13 @@ fn show_memories(p: f64) {
     print_memory("Rank9Sel", bytes);
 
     let bytes = {
-        let idx = sucds::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned())
-            .select1_hints()
-            .select0_hints();
+        let idx = sucds::bit_vectors::Rank9Sel::build_from_bits(
+            bits.iter().cloned(),
+            false,
+            true,
+            true,
+        )
+        .unwrap();
         idx.size_in_bytes()
     };
     print_memory("Rank9Sel (with select hints)", bytes);

@@ -168,27 +168,6 @@ impl Rank9SelIndex {
         Rank9SelIndexBuilder::new(bv).build()
     }
 
-    /// Builds an index for faster `select1`.
-    #[must_use]
-    pub fn select1_hints(self) -> Self {
-        self.into_builder().select1_hints().build()
-    }
-
-    /// Builds an index for faster `select0`.
-    #[must_use]
-    pub fn select0_hints(self) -> Self {
-        self.into_builder().select0_hints().build()
-    }
-
-    fn into_builder(self) -> Rank9SelIndexBuilder {
-        Rank9SelIndexBuilder {
-            len: self.len,
-            block_rank_pairs: self.block_rank_pairs.as_ref().to_vec(),
-            select1_hints: self.select1_hints.map(|v| v.as_ref().to_vec()),
-            select0_hints: self.select0_hints.map(|v| v.as_ref().to_vec()),
-        }
-    }
-
     /// Gets the number of bits set.
     #[inline(always)]
     pub fn num_ones(&self) -> usize {
@@ -332,7 +311,7 @@ impl Rank9SelIndex {
     /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::new(&bv).select1_hints();
+    /// let idx = Rank9SelIndexBuilder::new(&bv).select1_hints().build();
     ///
     /// unsafe {
     ///     assert_eq!(idx.select1(&bv, 0), Some(0));
@@ -408,7 +387,7 @@ impl Rank9SelIndex {
     /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::new(&bv).select0_hints();
+    /// let idx = Rank9SelIndexBuilder::new(&bv).select0_hints().build();
     ///
     /// unsafe {
     ///     assert_eq!(idx.select0(&bv, 0), Some(1));
@@ -563,7 +542,10 @@ mod tests {
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([false, true, true, false, true]);
-        let idx = Rank9SelIndex::new(&bv).select1_hints().select0_hints();
+        let idx = Rank9SelIndexBuilder::new(&bv)
+            .select1_hints()
+            .select0_hints()
+            .build();
         let bytes = idx.to_bytes();
         let other = Rank9SelIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
