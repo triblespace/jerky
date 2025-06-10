@@ -8,7 +8,7 @@ use anyhow::Result;
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use crate::bit_vectors::BitVector;
-use inner::DArrayIndex;
+use inner::{DArrayIndex, DArrayIndexBuilder};
 
 /// Constant-time select data structure over integer sets with the dense array technique.
 ///
@@ -70,7 +70,7 @@ impl DArray {
         I: IntoIterator<Item = bool>,
     {
         let bv = BitVector::from_bits(bits);
-        let s1 = DArrayIndex::new(&bv, true);
+        let s1 = DArrayIndexBuilder::new(&bv, true).build();
         Self {
             bv,
             s1,
@@ -89,7 +89,7 @@ impl DArray {
     /// Builds an index to enable select0.
     #[must_use]
     pub fn enable_select0(mut self) -> Self {
-        self.s0 = Some(DArrayIndex::new(&self.bv, false));
+        self.s0 = Some(DArrayIndexBuilder::new(&self.bv, false).build());
         self
     }
 

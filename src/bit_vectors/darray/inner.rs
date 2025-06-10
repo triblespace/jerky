@@ -1,6 +1,10 @@
 //! Internal index structure of [`DArray`](super::DArray).
 #![cfg(target_pointer_width = "64")]
 
+use anybytes::{Bytes, View};
+
+use anyhow::Result;
+
 use crate::bit_vectors::BitVector;
 use crate::bit_vectors::NumBits;
 use crate::broadword;
@@ -10,13 +14,114 @@ const SUBBLOCK_LEN: usize = 32;
 const MAX_IN_BLOCK_DISTANCE: usize = 1 << 16;
 
 /// The index implementation of [`DArray`](super::DArray) separated from the bit vector.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DArrayIndex {
+    block_inventory: View<[isize]>,
+    subblock_inventory: View<[u16]>,
+    overflow_positions: View<[usize]>,
+    num_positions: usize,
+    over_one: bool, // WANT_TODO(kampersanda): Solve with generics
+}
+
+/// Builder for [`DArrayIndex`].
+#[derive(Default, Debug, Clone)]
+pub struct DArrayIndexBuilder {
     block_inventory: Vec<isize>,
     subblock_inventory: Vec<u16>,
     overflow_positions: Vec<usize>,
     num_positions: usize,
-    over_one: bool, // WANT_TODO(kampersanda): Solve with generics
+    over_one: bool,
+}
+
+impl Default for DArrayIndex {
+    fn default() -> Self {
+        DArrayIndexBuilder::default().build()
+    }
+}
+
+impl DArrayIndexBuilder {
+    /// Creates a builder from the given bit vector.
+    pub fn new(bv: &BitVector, over_one: bool) -> Self {
+        let mut cur_block_positions = vec![];
+        let mut block_inventory = vec![];
+        let mut subblock_inventory = vec![];
+        let mut overflow_positions = vec![];
+        let mut num_positions = 0;
+
+        let w = if over_one {
+            DArrayIndex::get_word_over_one
+        } else {
+            DArrayIndex::get_word_over_zero
+        };
+
+        for word_idx in 0..bv.num_words() {
+            let mut cur_pos = word_idx * 64;
+            let mut cur_word = w(bv, word_idx);
+
+            while let Some(l) = broadword::lsb(cur_word) {
+                cur_pos += l;
+                cur_word >>= l;
+                if cur_pos >= bv.num_bits() {
+                    break;
+                }
+
+                cur_block_positions.push(cur_pos);
+                if cur_block_positions.len() == BLOCK_LEN {
+                    DArrayIndex::flush_cur_block(
+                        &mut cur_block_positions,
+                        &mut block_inventory,
+                        &mut subblock_inventory,
+                        &mut overflow_positions,
+                    );
+                }
+
+                cur_word >>= 1;
+                cur_pos += 1;
+                num_positions += 1;
+            }
+        }
+
+        if !cur_block_positions.is_empty() {
+            DArrayIndex::flush_cur_block(
+                &mut cur_block_positions,
+                &mut block_inventory,
+                &mut subblock_inventory,
+                &mut overflow_positions,
+            );
+        }
+
+        block_inventory.shrink_to_fit();
+        subblock_inventory.shrink_to_fit();
+        overflow_positions.shrink_to_fit();
+
+        Self {
+            block_inventory,
+            subblock_inventory,
+            overflow_positions,
+            num_positions,
+            over_one,
+        }
+    }
+
+    /// Freezes and returns [`DArrayIndex`].
+    pub fn build(self) -> DArrayIndex {
+        let block_inventory = Bytes::from_source(self.block_inventory)
+            .view::<[isize]>()
+            .unwrap();
+        let subblock_inventory = Bytes::from_source(self.subblock_inventory)
+            .view::<[u16]>()
+            .unwrap();
+        let overflow_positions = Bytes::from_source(self.overflow_positions)
+            .view::<[usize]>()
+            .unwrap();
+        DArrayIndex {
+            block_inventory,
+            subblock_inventory,
+            overflow_positions,
+            num_positions: self.num_positions,
+            over_one: self.over_one,
+        }
+    }
 }
 
 impl DArrayIndex {
@@ -27,7 +132,7 @@ impl DArrayIndex {
     /// - `bv`: Input bit vector.
     /// - `over_one`: Flag to build the index for ones.
     pub fn new(bv: &BitVector, over_one: bool) -> Self {
-        Self::build(bv, over_one)
+        DArrayIndexBuilder::new(bv, over_one).build()
     }
 
     /// Searches the `k`-th iteger.
@@ -129,68 +234,59 @@ impl DArrayIndex {
         self.num_positions
     }
 
-    fn build(bv: &BitVector, over_one: bool) -> Self {
-        let mut cur_block_positions = vec![];
-        let mut block_inventory = vec![];
-        let mut subblock_inventory = vec![];
-        let mut overflow_positions = vec![];
-        let mut num_positions = 0;
+    /// Reconstructs the index from zero-copy [`Bytes`].
+    pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
+        let bi_len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let op_len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let si_len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let num_positions = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let over_one = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
 
-        let w = {
-            if over_one {
-                Self::get_word_over_one
-            } else {
-                Self::get_word_over_zero
-            }
-        };
+        let block_inventory = bytes
+            .view_prefix_with_elems::<[isize]>(bi_len)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let overflow_positions = bytes
+            .view_prefix_with_elems::<[usize]>(op_len)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let subblock_inventory = bytes
+            .view_prefix_with_elems::<[u16]>(si_len)
+            .map_err(|e| anyhow::anyhow!(e))?;
 
-        for word_idx in 0..bv.num_words() {
-            let mut cur_pos = word_idx * 64;
-            let mut cur_word = w(bv, word_idx);
-
-            while let Some(l) = broadword::lsb(cur_word) {
-                cur_pos += l;
-                cur_word >>= l;
-                if cur_pos >= bv.num_bits() {
-                    break;
-                }
-
-                cur_block_positions.push(cur_pos);
-                if cur_block_positions.len() == BLOCK_LEN {
-                    Self::flush_cur_block(
-                        &mut cur_block_positions,
-                        &mut block_inventory,
-                        &mut subblock_inventory,
-                        &mut overflow_positions,
-                    );
-                }
-
-                cur_word >>= 1;
-                cur_pos += 1;
-                num_positions += 1;
-            }
-        }
-
-        if !cur_block_positions.is_empty() {
-            Self::flush_cur_block(
-                &mut cur_block_positions,
-                &mut block_inventory,
-                &mut subblock_inventory,
-                &mut overflow_positions,
-            );
-        }
-
-        block_inventory.shrink_to_fit();
-        subblock_inventory.shrink_to_fit();
-        overflow_positions.shrink_to_fit();
-
-        Self {
+        Ok(Self {
             block_inventory,
             subblock_inventory,
             overflow_positions,
             num_positions,
             over_one,
-        }
+        })
+    }
+
+    /// Serializes the index metadata and data into a [`Bytes`] buffer.
+    pub fn to_bytes(&self) -> Bytes {
+        use core::ops::Deref;
+        use zerocopy::IntoBytes;
+
+        let mut store: Vec<u8> = Vec::new();
+        store.extend_from_slice(&self.block_inventory.len().to_ne_bytes());
+        store.extend_from_slice(&self.overflow_positions.len().to_ne_bytes());
+        store.extend_from_slice(&self.subblock_inventory.len().to_ne_bytes());
+        store.extend_from_slice(&self.num_positions.to_ne_bytes());
+        store.extend_from_slice(&(self.over_one as usize).to_ne_bytes());
+        store.extend_from_slice(IntoBytes::as_bytes(self.block_inventory.deref()));
+        store.extend_from_slice(IntoBytes::as_bytes(self.overflow_positions.deref()));
+        store.extend_from_slice(IntoBytes::as_bytes(self.subblock_inventory.deref()));
+        Bytes::from_source(store)
     }
 
     fn flush_cur_block(
@@ -261,5 +357,24 @@ mod tests {
         unsafe {
             assert_eq!(da.select(&bv, 0), None);
         }
+    }
+
+    #[test]
+    fn test_zero_copy_from_to_bytes() {
+        let bv = BitVector::from_bits([true, false, true, false, true]);
+        let idx = DArrayIndex::new(&bv, true);
+        let bytes = idx.to_bytes();
+        let other = DArrayIndex::from_bytes(bytes).unwrap();
+        assert_eq!(idx, other);
+    }
+
+    #[test]
+    fn test_builder_roundtrip() {
+        let bv = BitVector::from_bits([true, false, true, true, false, false]);
+        let builder = DArrayIndexBuilder::new(&bv, true);
+        let idx = builder.clone().build();
+        let bytes = builder.build().to_bytes();
+        let from = DArrayIndex::from_bytes(bytes).unwrap();
+        assert_eq!(idx, from);
     }
 }
