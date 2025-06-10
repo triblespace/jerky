@@ -19,6 +19,7 @@ rust-version = "1.61.0"
 anyhow = "1.0"
 num-traits = "0.2.15"
 anybytes = { version = "0.19", features = ["zerocopy"] }
+zerocopy = "0.8"
 
 [features]
 default = ["std"]
