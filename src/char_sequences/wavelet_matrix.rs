@@ -6,7 +6,8 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::{Access, BitVector, Build, NumBits, Rank, Rank9Sel, Select};
+use crate::bit_vectors::{Access, BitVector, NumBits, Rank, Rank9Sel, Select};
+use crate::builder::Builder;
 use crate::int_vectors::CompactVector;
 use crate::utils;
 
@@ -60,7 +61,7 @@ pub struct WaveletMatrix<B> {
 
 impl<B> WaveletMatrix<B>
 where
-    B: Access + Build + NumBits + Rank + Select,
+    B: Access + NumBits + Rank + Select,
 {
     /// Creates a new instance from an input sequence `seq`.
     ///
@@ -69,7 +70,7 @@ where
     /// An error is returned if
     ///
     ///  - `seq` is empty, or
-    ///  - `B::build_from_bits` fails.
+    ///  - layer construction fails.
     pub fn new(seq: CompactVector) -> Result<Self> {
         if seq.is_empty() {
             return Err(anyhow!("seq must not be empty."));
@@ -102,7 +103,9 @@ where
             );
             zeros = next_zeros;
             ones = next_ones;
-            layers.push(B::build_from_bits(bv.iter(), true, true, true)?);
+            let mut bldr = B::builder();
+            let _ = bldr.extend(bv.iter());
+            layers.push(bldr.build());
         }
 
         Ok(Self { layers, alph_size })
@@ -576,7 +579,7 @@ impl<'a, B> Iter<'a, B> {
 
 impl<B> Iterator for Iter<'_, B>
 where
-    B: Access + Build + NumBits + Rank + Select,
+    B: Access + NumBits + Rank + Select,
 {
     type Item = usize;
 

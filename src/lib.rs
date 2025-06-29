@@ -53,6 +53,8 @@ compile_error!("`target_pointer_width` must be 64");
 
 pub mod bit_vectors;
 pub mod broadword;
+/// Generic builder utilities.
+pub mod builder;
 pub mod char_sequences;
 pub mod int_vectors;
 mod intrinsics;

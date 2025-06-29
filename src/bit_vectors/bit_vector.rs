@@ -55,6 +55,11 @@ impl BitVector {
         Self::default()
     }
 
+    /// Returns a new builder for streaming construction.
+    pub fn builder() -> Self {
+        Self::new()
+    }
+
     /// Creates a new vector that at least `capa` bits are reserved.
     ///
     /// # Arguments
@@ -668,30 +673,28 @@ impl BitVector {
     }
 }
 
-impl Build for BitVector {
-    /// Creates a new vector from input bit stream `bits`.
-    ///
-    /// # Arguments
-    ///
-    /// - `bits`: Bit stream.
-    /// - `with_rank`: Dummy.
-    /// - `with_select1`: Dummy.
-    /// - `with_select0`: Dummy.
-    ///
-    /// # Errors
-    ///
-    /// Never.
-    fn build_from_bits<I>(
-        bits: I,
-        _with_rank: bool,
-        _with_select1: bool,
-        _with_select0: bool,
-    ) -> Result<Self>
+
+impl crate::builder::Builder for BitVector {
+    type Item = bool;
+    type Build = Self;
+
+    fn push(&mut self, item: Self::Item) -> Result<()> {
+        self.push_bit(item);
+        Ok(())
+    }
+
+    fn extend<I>(&mut self, iter: I) -> Result<()>
     where
-        I: IntoIterator<Item = bool>,
-        Self: Sized,
+        I: IntoIterator<Item = Self::Item>,
     {
-        Ok(Self::from_bits(bits))
+        for b in iter {
+            self.push_bit(b);
+        }
+        Ok(())
+    }
+
+    fn build(self) -> Self::Build {
+        self
     }
 }
 

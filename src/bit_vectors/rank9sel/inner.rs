@@ -24,31 +24,63 @@ pub struct Rank9SelIndex {
 
 /// Builder for [`Rank9SelIndex`].
 #[derive(Default, Debug, Clone)]
-pub struct Rank9SelIndexBuilder {
+pub struct Rank9SelIndexBuilder<const SELECT1: bool = false, const SELECT0: bool = false> {
     len: usize,
     block_rank_pairs: Vec<usize>,
     select1_hints: Option<Vec<usize>>,
     select0_hints: Option<Vec<usize>>,
+    // streaming fields
+    next_rank: usize,
+    cur_subrank: usize,
+    subranks: usize,
+    cur_word_pop: usize,
+    bits_in_word: usize,
+    num_words: usize,
+    cur_ones_threshold: usize,
+    cur_zeros_threshold: usize,
 }
 
 impl Rank9SelIndexBuilder {
+    /// Creates a streaming builder without select hints.
+    pub fn new() -> Self {
+        Rank9SelIndexBuilder::<false, false>::new_stream()
+    }
+
+    /// Creates a builder from the given bit vector without select hints.
+    pub fn from_bits(bv: &BitVector) -> Self {
+        Rank9SelIndexBuilder::<false, false>::new_generic(bv)
+    }
+}
+
+impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndexBuilder<SELECT1, SELECT0> {
+    /// Creates an empty streaming builder.
+    pub fn new_stream() -> Self {
+        Self {
+            len: 0,
+            block_rank_pairs: vec![0],
+            select1_hints: if SELECT1 { Some(Vec::new()) } else { None },
+            select0_hints: if SELECT0 { Some(Vec::new()) } else { None },
+            next_rank: 0,
+            cur_subrank: 0,
+            subranks: 0,
+            cur_word_pop: 0,
+            bits_in_word: 0,
+            num_words: 0,
+            cur_ones_threshold: SELECT_ONES_PER_HINT,
+            cur_zeros_threshold: SELECT_ZEROS_PER_HINT,
+        }
+    }
+
     /// Creates a builder from the given bit vector.
-    pub fn new(bv: &BitVector) -> Self {
-        Self::build_rank(bv)
-    }
-
-    /// Builds an index for faster `select1` queries.
-    pub fn select1_hints(self) -> Self {
-        self.build_select1()
-    }
-
-    /// Builds an index for faster `select0` queries.
-    pub fn select0_hints(self) -> Self {
-        self.build_select0()
+    pub fn new_generic(bv: &BitVector) -> Self {
+        let mut this = Self::new_stream();
+        this.extend(bv.iter());
+        this
     }
 
     /// Freezes and returns [`Rank9SelIndex`].
-    pub fn build(self) -> Rank9SelIndex {
+    pub fn build(mut self) -> Rank9SelIndex {
+        self.finalize();
         let block_rank_pairs = Bytes::from_source(self.block_rank_pairs)
             .view::<[usize]>()
             .unwrap();
@@ -67,51 +99,9 @@ impl Rank9SelIndexBuilder {
     }
 
     fn build_rank(bv: &BitVector) -> Self {
-        let mut next_rank = 0;
-        let mut cur_subrank = 0;
-        let mut subranks = 0;
-
-        let mut block_rank_pairs = vec![next_rank];
-
-        for i in 0..bv.num_words() {
-            let word_pop = broadword::popcount(bv.words()[i]);
-
-            let shift = i % BLOCK_LEN;
-            if shift != 0 {
-                subranks <<= 9;
-                subranks |= cur_subrank;
-            }
-
-            next_rank += word_pop;
-            cur_subrank += word_pop;
-
-            if shift == BLOCK_LEN - 1 {
-                block_rank_pairs.push(subranks);
-                block_rank_pairs.push(next_rank);
-                subranks = 0;
-                cur_subrank = 0;
-            }
-        }
-
-        let left = BLOCK_LEN - (bv.num_words() % BLOCK_LEN);
-        for _ in 0..left {
-            subranks <<= 9;
-            subranks |= cur_subrank;
-        }
-        block_rank_pairs.push(subranks);
-
-        if bv.num_words() % BLOCK_LEN != 0 {
-            block_rank_pairs.push(next_rank);
-            block_rank_pairs.push(0);
-        }
-        block_rank_pairs.shrink_to_fit();
-
-        Self {
-            len: bv.num_bits(),
-            block_rank_pairs,
-            select1_hints: None,
-            select0_hints: None,
-        }
+        let mut this = Self::new_stream();
+        this.extend(bv.iter());
+        this
     }
 
     fn build_select1(mut self) -> Self {
@@ -146,6 +136,90 @@ impl Rank9SelIndexBuilder {
         self
     }
 
+    /// Pushes a bit for streaming construction.
+    pub fn push_bit(&mut self, bit: bool) {
+        self.len += 1;
+        if bit {
+            self.cur_word_pop += 1;
+        }
+        self.bits_in_word += 1;
+        if self.bits_in_word == 64 {
+            self.finalize_word();
+        }
+    }
+
+    /// Extends bits from an iterator.
+    pub fn extend<I>(&mut self, bits: I)
+    where
+        I: IntoIterator<Item = bool>,
+    {
+        for b in bits {
+            self.push_bit(b);
+        }
+    }
+
+    fn finalize_word(&mut self) {
+        let shift = self.num_words % BLOCK_LEN;
+        if shift != 0 {
+            self.subranks <<= 9;
+            self.subranks |= self.cur_subrank;
+        }
+        self.next_rank += self.cur_word_pop;
+        self.cur_subrank += self.cur_word_pop;
+        self.num_words += 1;
+        if shift == BLOCK_LEN - 1 {
+            self.block_rank_pairs.push(self.subranks);
+            self.block_rank_pairs.push(self.next_rank);
+            self.subranks = 0;
+            self.cur_subrank = 0;
+            let block_idx = self.num_words / BLOCK_LEN - 1;
+            if let Some(ref mut v) = self.select1_hints {
+                while self.next_rank > self.cur_ones_threshold {
+                    v.push(block_idx);
+                    self.cur_ones_threshold += SELECT_ONES_PER_HINT;
+                }
+            }
+            if let Some(ref mut v) = self.select0_hints {
+                while self.num_words * 64 - self.next_rank > self.cur_zeros_threshold {
+                    v.push(block_idx);
+                    self.cur_zeros_threshold += SELECT_ZEROS_PER_HINT;
+                }
+            }
+        }
+        self.cur_word_pop = 0;
+        self.bits_in_word = 0;
+    }
+
+    fn finalize(&mut self) {
+        if self.bits_in_word > 0 {
+            self.finalize_word();
+        }
+        let left = BLOCK_LEN - (self.num_words % BLOCK_LEN);
+        for _ in 0..left {
+            self.subranks <<= 9;
+            self.subranks |= self.cur_subrank;
+        }
+        self.block_rank_pairs.push(self.subranks);
+        if self.num_words % BLOCK_LEN != 0 {
+            self.block_rank_pairs.push(self.next_rank);
+            self.block_rank_pairs.push(0);
+        }
+        let nb = self.num_blocks();
+        if let Some(ref mut v) = self.select1_hints {
+            v.push(nb);
+        }
+        if let Some(ref mut v) = self.select0_hints {
+            v.push(nb);
+        }
+        self.block_rank_pairs.shrink_to_fit();
+        if let Some(ref mut v) = self.select1_hints {
+            v.shrink_to_fit();
+        }
+        if let Some(ref mut v) = self.select0_hints {
+            v.shrink_to_fit();
+        }
+    }
+
     #[inline(always)]
     fn num_blocks(&self) -> usize {
         self.block_rank_pairs.len() / 2 - 1
@@ -165,7 +239,7 @@ impl Rank9SelIndexBuilder {
 impl Rank9SelIndex {
     /// Creates a new vector from input bit vector `bv`.
     pub fn new(bv: &BitVector) -> Self {
-        Rank9SelIndexBuilder::new(bv).build()
+        Rank9SelIndexBuilder::from_bits(bv).build()
     }
 
     /// Gets the number of bits set.
@@ -225,7 +299,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::new(&bv);
@@ -272,7 +346,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::new(&bv);
@@ -308,10 +382,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::new(&bv).select1_hints().build();
+    /// let idx = Rank9SelIndexBuilder::<true, false>::new_generic(&bv).build();
     ///
     /// unsafe {
     ///     assert_eq!(idx.select1(&bv, 0), Some(0));
@@ -384,10 +458,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::new(&bv).select0_hints().build();
+    /// let idx = Rank9SelIndexBuilder::<false, true>::new_generic(&bv).build();
     ///
     /// unsafe {
     ///     assert_eq!(idx.select0(&bv, 0), Some(1));
@@ -542,10 +616,7 @@ mod tests {
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([false, true, true, false, true]);
-        let idx = Rank9SelIndexBuilder::new(&bv)
-            .select1_hints()
-            .select0_hints()
-            .build();
+        let idx = Rank9SelIndexBuilder::<true, true>::new_generic(&bv).build();
         let bytes = idx.to_bytes();
         let other = Rank9SelIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);

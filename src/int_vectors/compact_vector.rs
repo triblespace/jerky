@@ -409,18 +409,6 @@ impl CompactVector {
     }
 }
 
-impl Build for CompactVector {
-    /// Creates a new vector from a slice of integers `vals`.
-    ///
-    /// This just calls [`Self::from_slice()`]. See the documentation.
-    fn build_from_slice<T>(vals: &[T]) -> Result<Self>
-    where
-        T: ToPrimitive,
-        Self: Sized,
-    {
-        Self::from_slice(vals)
-    }
-}
 
 impl NumVals for CompactVector {
     /// Returns the number of integers stored (just wrapping [`Self::len()`]).

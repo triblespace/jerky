@@ -1,13 +1,14 @@
 //! Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
 #![cfg(target_pointer_width = "64")]
 
+mod builder;
 pub mod inner;
 
-use anyhow::Result;
+pub use builder::Rank9SelBuilder;
 
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::BitVector;
-use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use inner::Rank9SelIndex;
 
 /// Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
 ///
@@ -20,20 +21,15 @@ use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 ///
 /// In the default configuration, it does not build the select index for faster queries.
 /// To accelerate the queries, enable select hints when constructing the structure
-/// using [`Build::build_from_bits`] or [`Rank9SelIndexBuilder`].
+/// using [`Rank9SelBuilder`].
 ///
 /// # Examples
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::{Rank9Sel, Access, Rank, Select};
+/// use sucds::bit_vectors::{Rank9Sel, Rank9SelBuilder, Access, Rank, Select};
 ///
-/// let bv = Rank9Sel::build_from_bits(
-///     [true, false, false, true],
-///     false,
-///     true,
-///     true,
-/// )?;
+/// let bv = Rank9SelBuilder::<true, true>::from_bits([true, false, false, true]).build();
 ///
 /// assert_eq!(bv.len(), 4);
 /// assert_eq!(bv.access(1), Some(false));
@@ -61,13 +57,6 @@ pub struct Rank9Sel {
 }
 
 impl Rank9Sel {
-    /// Creates a new vector from input bit vector `bv`.
-    pub fn new(bv: BitVector) -> Self {
-        let rs = Rank9SelIndex::new(&bv);
-        Self { bv, rs }
-    }
-
-
     /// Creates a new vector from input bit stream `bits`.
     ///
     /// # Arguments
@@ -77,7 +66,7 @@ impl Rank9Sel {
     where
         I: IntoIterator<Item = bool>,
     {
-        Self::new(BitVector::from_bits(bits))
+        Rank9SelBuilder::<false, false>::from_bits(bits).build()
     }
 
     /// Returns the reference of the internal bit vector.
@@ -99,41 +88,10 @@ impl Rank9Sel {
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
-}
 
-impl Build for Rank9Sel {
-    /// Creates a new vector from input bit stream `bits`.
-    ///
-    /// # Arguments
-    ///
-    /// - `bits`: Bit stream.
-    /// - `with_rank`: Dummy.
-    /// - `with_select1`: Flag to enable select1 hints.
-    /// - `with_select0`: Flag to enable select0 hints.
-    ///
-    /// # Errors
-    ///
-    /// Never.
-    fn build_from_bits<I>(
-        bits: I,
-        _with_rank: bool,
-        with_select1: bool,
-        with_select0: bool,
-    ) -> Result<Self>
-    where
-        I: IntoIterator<Item = bool>,
-        Self: Sized,
-    {
-        let bv = BitVector::from_bits(bits);
-        let mut builder = Rank9SelIndexBuilder::new(&bv);
-        if with_select1 {
-            builder = builder.select1_hints();
-        }
-        if with_select0 {
-            builder = builder.select0_hints();
-        }
-        let rs = builder.build();
-        Ok(Self { bv, rs })
+    /// Returns a new builder for streaming construction.
+    pub fn builder() -> Rank9SelBuilder {
+        Rank9SelBuilder::new()
     }
 }
 
@@ -232,9 +190,9 @@ impl Select for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Select};
+    /// use sucds::bit_vectors::{Rank9Sel, Rank9SelBuilder, Select};
     ///
-    /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, true, false)?;
+    /// let bv = Rank9SelBuilder::<true, false>::from_bits([true, false, false, true]).build();
     ///
     /// assert_eq!(bv.select1(0), Some(0));
     /// assert_eq!(bv.select1(1), Some(3));
@@ -254,9 +212,9 @@ impl Select for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Select};
+    /// use sucds::bit_vectors::{Rank9Sel, Rank9SelBuilder, Select};
     ///
-    /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, false, true)?;
+    /// let bv = Rank9SelBuilder::<false, true>::from_bits([true, false, false, true]).build();
     ///
     /// assert_eq!(bv.select0(0), Some(1));
     /// assert_eq!(bv.select0(1), Some(2));
@@ -290,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_select1_all_zeros() {
-        let bv = Rank9Sel::build_from_bits([false, false, false], false, true, false).unwrap();
+        let bv = Rank9SelBuilder::<true, false>::from_bits([false, false, false]).build();
         assert_eq!(bv.select1(0), None);
     }
 
@@ -306,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_select0_all_ones() {
-        let bv = Rank9Sel::build_from_bits([true, true, true], false, false, true).unwrap();
+        let bv = Rank9SelBuilder::<false, true>::from_bits([true, true, true]).build();
         assert_eq!(bv.select0(0), None);
     }
 
