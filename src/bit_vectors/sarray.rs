@@ -1,12 +1,13 @@
 //! Rank/Select data structure over very sparse bit vectors using the Elias-Fano scheme.
 #![cfg(target_pointer_width = "64")]
 
-use anyhow::{anyhow, Result};
-
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::BitVector;
 use crate::broadword;
 use crate::mii_sequences::{EliasFano, EliasFanoBuilder};
+mod builder;
+
+pub use builder::SArrayBuilder;
 
 /// Rank/Select data structure over very sparse bit vectors, which is
 /// a specialized version of [EliasFano](crate::mii_sequences::EliasFano) for bit vectors.
@@ -175,39 +176,18 @@ impl SArray {
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns a new builder for streaming construction.
+    pub fn builder() -> SArrayBuilder {
+        SArrayBuilder::new()
+    }
 }
 
-impl Build for SArray {
-    /// Creates a new vector from input bit stream `bits`.
-    ///
-    /// # Arguments
-    ///
-    /// - `bits`: Bit stream.
-    /// - `with_rank`: Flag to enable [`Self::enable_rank()`].
-    /// - `with_select1`: Dummy.
-    /// - `with_select0`: Not supported.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if `with_select0` is set.
-    fn build_from_bits<I>(
-        bits: I,
-        with_rank: bool,
-        _with_select1: bool,
-        with_select0: bool,
-    ) -> Result<Self>
-    where
-        I: IntoIterator<Item = bool>,
-        Self: Sized,
-    {
-        if with_select0 {
-            return Err(anyhow!("select0 is not supported for SArray."));
-        }
-        let mut rsbv = Self::from_bits(bits);
-        if with_rank {
-            rsbv = rsbv.enable_rank();
-        }
-        Ok(rsbv)
+impl crate::builder::Build for SArray {
+    type Builder = SArrayBuilder<false>;
+
+    fn builder() -> Self::Builder {
+        SArrayBuilder::new()
     }
 }
 
@@ -400,14 +380,5 @@ mod tests {
     fn test_successor1_panic() {
         let sa = SArray::from_bits([false, true, false]);
         sa.successor1(1);
-    }
-
-    #[test]
-    fn test_rs_build_with_s0() {
-        let e = SArray::build_from_bits([false, true, false], false, false, true);
-        assert_eq!(
-            e.err().map(|x| x.to_string()),
-            Some("select0 is not supported for SArray.".to_string())
-        );
     }
 }

@@ -143,14 +143,10 @@ impl PrefixSummedEliasFano {
     }
 }
 
-impl Build for PrefixSummedEliasFano {
-    /// Creates a new vector from a slice of integers `vals`.
-    ///
-    /// This just calls [`Self::from_slice()`]. See the documentation.
+impl crate::int_vectors::Build for PrefixSummedEliasFano {
     fn build_from_slice<T>(vals: &[T]) -> Result<Self>
     where
         T: ToPrimitive,
-        Self: Sized,
     {
         Self::from_slice(vals)
     }

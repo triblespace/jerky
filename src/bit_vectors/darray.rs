@@ -1,9 +1,10 @@
 //! Constant-time select data structure over integer sets with the dense array technique.
 #![cfg(target_pointer_width = "64")]
 
+mod builder;
 pub mod inner;
 
-use anyhow::Result;
+pub use builder::DArrayBuilder;
 
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
@@ -134,39 +135,18 @@ impl DArray {
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns a new builder for streaming construction.
+    pub fn builder() -> DArrayBuilder {
+        DArrayBuilder::new()
+    }
 }
 
-impl Build for DArray {
-    /// Creates a new vector from input bit stream `bits`.
-    ///
-    /// # Arguments
-    ///
-    /// - `bits`: Bit stream.
-    /// - `with_rank`: Flag to enable [`Self::enable_rank()`].
-    /// - `with_select1`: Dummy.
-    /// - `with_select0`: Flag to enable [`Self::enable_select0()`].
-    ///
-    /// # Errors
-    ///
-    /// Never.
-    fn build_from_bits<I>(
-        bits: I,
-        with_rank: bool,
-        _with_select1: bool,
-        with_select0: bool,
-    ) -> Result<Self>
-    where
-        I: IntoIterator<Item = bool>,
-        Self: Sized,
-    {
-        let mut rsbv = Self::from_bits(bits);
-        if with_rank {
-            rsbv = rsbv.enable_rank();
-        }
-        if with_select0 {
-            rsbv = rsbv.enable_select0();
-        }
-        Ok(rsbv)
+impl crate::builder::Build for DArray {
+    type Builder = DArrayBuilder<false, false>;
+
+    fn builder() -> Self::Builder {
+        DArrayBuilder::new()
     }
 }
 

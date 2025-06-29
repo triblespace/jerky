@@ -67,6 +67,7 @@
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use sucds::int_vectors::{DacsOpt, prelude::*};
+//! use sucds::int_vectors::Build;
 //!
 //! let seq = DacsOpt::build_from_slice(&[5, 0, 100000, 334])?;
 //!
@@ -94,14 +95,6 @@ use num_traits::ToPrimitive;
 /// Interface for building integer vectors.
 pub trait Build {
     /// Creates a new vector from a slice of integers `vals`.
-    ///
-    /// # Arguments
-    ///
-    ///  - `vals`: Slice of integers to be stored.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if `vals` contains an integer that cannot be cast to [`usize`].
     fn build_from_slice<T>(vals: &[T]) -> Result<Self>
     where
         T: ToPrimitive,

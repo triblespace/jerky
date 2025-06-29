@@ -4,8 +4,8 @@
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel};
-use crate::int_vectors::{Access, Build, CompactVector, NumVals};
+use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel, Rank9SelBuilder};
+use crate::int_vectors::{Access, CompactVector, NumVals};
 use crate::utils;
 
 /// Compressed integer sequence using Directly Addressable Codes (DACs) with optimal assignment.
@@ -222,7 +222,10 @@ impl DacsOpt {
             }
         }
 
-        let flags = flags.into_iter().map(Rank9Sel::new).collect();
+        let flags = flags
+            .into_iter()
+            .map(|bv| Rank9SelBuilder::<false, false>::from_bitvec(bv).build())
+            .collect();
         Ok(Self { data, flags })
     }
 
@@ -274,25 +277,21 @@ impl DacsOpt {
     }
 }
 
+impl crate::int_vectors::Build for DacsOpt {
+    fn build_from_slice<T>(vals: &[T]) -> Result<Self>
+    where
+        T: ToPrimitive,
+    {
+        Self::from_slice(vals, None)
+    }
+}
+
 impl Default for DacsOpt {
     fn default() -> Self {
         Self {
             data: vec![CompactVector::default()],
             flags: vec![],
         }
-    }
-}
-
-impl Build for DacsOpt {
-    /// Creates a new vector from a slice of integers `vals`.
-    ///
-    /// This just calls [`Self::from_slice()`] with `max_levels == None`. See the documentation.
-    fn build_from_slice<T>(vals: &[T]) -> Result<Self>
-    where
-        T: ToPrimitive,
-        Self: Sized,
-    {
-        Self::from_slice(vals, None)
     }
 }
 

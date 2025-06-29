@@ -5,7 +5,9 @@ pub mod iter;
 
 use std::ops::Range;
 
+use crate::builder::Builder;
 use anyhow::{anyhow, Result};
+use num_traits::ToPrimitive;
 
 use crate::bit_vectors::{Access, BitVector, DArray, NumBits, Select};
 use crate::broadword;
@@ -28,11 +30,17 @@ const LINEAR_SCAN_THRESHOLD: usize = 64;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::mii_sequences::EliasFanoBuilder;
+/// use sucds::mii_sequences::{EliasFano, EliasFanoBuilder};
+/// use sucds::bit_vectors::prelude::*;
 ///
 /// let mut efb = EliasFanoBuilder::new(8, 4)?;
 /// efb.extend([1, 3, 3, 7])?;
 /// let ef = efb.build();
+///
+/// // Alternatively, build from a bit stream.
+/// let _ = EliasFano::from_bits([
+///     false, true, false, true, false, false, false, true,
+/// ])?;
 ///
 /// assert_eq!(ef.len(), 4);
 /// assert_eq!(ef.universe(), 8);
@@ -111,6 +119,41 @@ impl EliasFano {
             if bv.access(i).unwrap() {
                 b.push(i)?;
             }
+        }
+        Ok(b.build())
+    }
+
+    /// Creates a new sequence from a slice of monotone increasing integers.
+    ///
+    /// # Arguments
+    ///
+    /// - `vals`: Slice of integers to be stored.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if
+    ///
+    ///  - `vals` is empty,
+    ///  - `vals` contains an integer that cannot be cast to [`usize`], or
+    ///  - `vals` is not monotone increasing.
+    pub fn from_slice<T>(vals: &[T]) -> Result<Self>
+    where
+        T: ToPrimitive,
+    {
+        if vals.is_empty() {
+            return Err(anyhow!("vals must not be empty."));
+        }
+
+        let universe = vals
+            .last()
+            .and_then(|x| x.to_usize())
+            .ok_or_else(|| anyhow!("vals must consist only of values castable into usize."))?
+            + 1;
+        let mut b = EliasFanoBuilder::new(universe, vals.len())?;
+        for x in vals {
+            b.push(x.to_usize().ok_or_else(|| {
+                anyhow!("vals must consist only of values castable into usize.")
+            })?)?;
         }
         Ok(b.build())
     }
@@ -658,6 +701,26 @@ impl EliasFanoBuilder {
     #[inline(always)]
     pub const fn num_vals(&self) -> usize {
         self.num_vals
+    }
+}
+
+impl Builder for EliasFanoBuilder {
+    type Item = usize;
+    type Build = EliasFano;
+
+    fn push(&mut self, item: Self::Item) -> Result<()> {
+        EliasFanoBuilder::push(self, item)
+    }
+
+    fn extend<I>(&mut self, iter: I) -> Result<()>
+    where
+        I: IntoIterator<Item = Self::Item>,
+    {
+        EliasFanoBuilder::extend(self, iter)
+    }
+
+    fn build(self) -> Self::Build {
+        EliasFanoBuilder::build(self)
     }
 }
 

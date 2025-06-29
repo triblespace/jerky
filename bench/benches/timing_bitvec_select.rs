@@ -48,13 +48,9 @@ fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], qu
     });
 
     group.bench_function("sucds/Rank9Sel", |b| {
-        let idx = sucds::bit_vectors::Rank9Sel::build_from_bits(
-            bits.iter().cloned(),
-            false,
-            true,
-            false,
-        )
-        .unwrap();
+        let idx =
+            sucds::bit_vectors::Rank9SelBuilder::<true, false>::from_bits(bits.iter().cloned())
+                .build();
         b.iter(|| run_queries(&idx, &queries));
     });
 

@@ -32,6 +32,7 @@
 //! [`EliasFano`] is an efficient data structure for sparse sequences (i.e., $`n \ll u`$).
 //! In addition to the basic queires listed above, this provides several access queries such as binary search.
 pub mod elias_fano;
+pub mod prelude;
 
 pub use elias_fano::EliasFano;
 pub use elias_fano::EliasFanoBuilder;

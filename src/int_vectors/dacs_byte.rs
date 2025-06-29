@@ -6,8 +6,8 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel};
-use crate::int_vectors::{Access, Build, NumVals};
+use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel, Rank9SelBuilder};
+use crate::int_vectors::{Access, NumVals};
 use crate::utils;
 
 const LEVEL_WIDTH: usize = 8;
@@ -115,7 +115,10 @@ impl DacsByte {
             }
         }
 
-        let flags = flags.into_iter().map(Rank9Sel::new).collect();
+        let flags = flags
+            .into_iter()
+            .map(|bv| Rank9SelBuilder::<false, false>::from_bitvec(bv).build())
+            .collect();
         Ok(Self { data, flags })
     }
 
@@ -167,6 +170,15 @@ impl DacsByte {
     }
 }
 
+impl crate::int_vectors::Build for DacsByte {
+    fn build_from_slice<T>(vals: &[T]) -> Result<Self>
+    where
+        T: ToPrimitive,
+    {
+        Self::from_slice(vals)
+    }
+}
+
 impl Default for DacsByte {
     fn default() -> Self {
         Self {
@@ -174,19 +186,6 @@ impl Default for DacsByte {
             data: vec![vec![]],
             flags: vec![],
         }
-    }
-}
-
-impl Build for DacsByte {
-    /// Creates a new vector from a slice of integers `vals`.
-    ///
-    /// This just calls [`Self::from_slice()`]. See the documentation.
-    fn build_from_slice<T>(vals: &[T]) -> Result<Self>
-    where
-        T: ToPrimitive,
-        Self: Sized,
-    {
-        Self::from_slice(vals)
     }
 }
 
