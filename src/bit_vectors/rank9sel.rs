@@ -26,7 +26,7 @@ use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::{Rank9Sel, Access, Rank, Select};
+/// use sucds::bit_vectors::{Rank9Sel, Access, Rank, Select, Build};
 ///
 /// let bv = Rank9Sel::build_from_bits(
 ///     [true, false, false, true],
@@ -66,7 +66,6 @@ impl Rank9Sel {
         let rs = Rank9SelIndex::new(&bv);
         Self { bv, rs }
     }
-
 
     /// Creates a new vector from input bit stream `bits`.
     ///
@@ -232,13 +231,16 @@ impl Select for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Select};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use sucds::bit_vectors::{Rank9Sel, Select, Build};
     ///
     /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, true, false)?;
     ///
     /// assert_eq!(bv.select1(0), Some(0));
     /// assert_eq!(bv.select1(1), Some(3));
     /// assert_eq!(bv.select1(2), None);
+    /// # Ok(())
+    /// # }
     /// ```
     fn select1(&self, k: usize) -> Option<usize> {
         unsafe { self.rs.select1(&self.bv, k) }
@@ -254,13 +256,16 @@ impl Select for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Select};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use sucds::bit_vectors::{Rank9Sel, Select, Build};
     ///
     /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, false, true)?;
     ///
     /// assert_eq!(bv.select0(0), Some(1));
     /// assert_eq!(bv.select0(1), Some(2));
     /// assert_eq!(bv.select0(2), None);
+    /// # Ok(())
+    /// # }
     /// ```
     fn select0(&self, k: usize) -> Option<usize> {
         unsafe { self.rs.select0(&self.bv, k) }

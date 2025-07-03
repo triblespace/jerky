@@ -30,7 +30,6 @@
 //!
 //! - [Integer vectors](crate::int_vectors)
 //! - [Bit vectors](crate::bit_vectors)
-//! - [Monotone-increasing integer sequences](crate::mii_sequences)
 //! - [Character sequences](crate::char_sequences)
 //!
 //! The descriptions for each category are available in the corresponding module.
@@ -54,10 +53,12 @@ compile_error!("`target_pointer_width` must be 64");
 pub mod bit_vectors;
 pub mod broadword;
 pub mod char_sequences;
+pub mod data;
 pub mod int_vectors;
 mod intrinsics;
-pub mod mii_sequences;
 pub mod utils;
+
+pub use data::{BitVectorData, IntVectorData};
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std
 // containers with different type annotations.

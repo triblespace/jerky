@@ -25,7 +25,6 @@
 //! | [`BitVector`] | $`O(1)`$  | $`O(u)`$ | $`O(u)`$ | $`O(1)`$ | $`u`$ |
 //! | [`Rank9Sel`] | $`O(1)`$ | $`O(1)`$ | $`O(\lg u)`$ | -- | $`u + o(u)`$ |
 //! | [`DArray`] | $`O(1)`$ | $`O(1)`$ | $`O(1)`$ | -- | $`u + o(u)`$ |
-//! | [`SArray`] | $`O(\lg n)`$ | $`O(\lg \frac{u}{n})`$ | $`O(1)`$ | -- | $`n \lceil \lg \frac{u}{n} \rceil + 2n + o(n)`$ |
 //!
 //! ## Plain bit vectors without index
 //!
@@ -43,15 +42,9 @@
 //!
 //! [`DArray`] is a constant-time Select data structure by Okanohara and Sadakane.
 //! If you need only Select queries on dense sets (i.e., $`n/u \approx 0.5`$), this will be the most candidate.
-//! If your bit vector is a very sparse set (i.e., $`n \ll u`$), use [`SArray`] described below.
 //! Rank/Predecessor/Successor queries are optionally enabled using the [`Rank9Sel`] index.
 //! [`DArray`] outperforms [`Rank9Sel`] in complexity, but the practical space overhead of [`DArray`] can be larger.
 //!
-//! ## Very sparse bit vectors
-//!
-//! [`SArray`] is a data structure that allows us to store very sparse sets (i.e., $`n \ll u`$)
-//! in compressed space, while supporting quick queries.
-//! This is a specialized wrapper of [`EliasFano`](crate::mii_sequences::EliasFano).
 //!
 //! # Examples
 //!
@@ -87,12 +80,10 @@ pub mod bit_vector;
 pub mod darray;
 pub mod prelude;
 pub mod rank9sel;
-pub mod sarray;
 
 pub use bit_vector::BitVector;
 pub use darray::DArray;
 pub use rank9sel::Rank9Sel;
-pub use sarray::SArray;
 
 use anyhow::Result;
 

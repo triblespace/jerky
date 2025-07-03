@@ -16,8 +16,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 /// Compressed integer sequence using Directly Addressable Codes (DACs) in a simple bytewise scheme.
 ///
 /// DACs are a compact representation of an integer sequence consisting of many small values.
-/// [`DacsByte`] is a simple variant and uses [`Vec<u8>`] for each level to obtain faster
-/// operations than [`DacsOpt`](super::DacsOpt).
+/// [`DacsByte`] uses [`Vec<u8>`] for each level to obtain faster operations.
 ///
 /// # Memory complexity
 ///
