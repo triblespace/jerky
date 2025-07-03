@@ -20,8 +20,6 @@
 //! | Implementation | [Access](Access) | Update | Memory (bits) |
 //! | --- | :-: | :-: | :-: |
 //! | [`CompactVector`] | $`O(1)`$ | $`O(1)`$  | $`n \lceil \lg u \rceil`$ |
-//! | [`PrefixSummedEliasFano`] | $`O(1)`$ | -- | $`n \lceil \lg \frac{N}{n} \rceil + 2n + o(n)`$ |
-//! | [`DacsOpt`]  | $`O(\ell(a_i) / b)`$ | -- | $`\textrm{DAC}_\textrm{Opt}(A) + o(\textrm{DAC}_\textrm{Opt}(A)/b) + O(\lg u)`$ |
 //! | [`DacsByte`] | $`O(\ell(a_i) / b)`$ | -- | $`\textrm{DAC}_\textrm{Byte}(A) + o(\textrm{DAC}_\textrm{Byte}(A)/b) + O(\lg u)`$ |
 //!
 //! The parameters are introduced below.
@@ -35,19 +33,11 @@
 //! This is the only updatable data structure and will be the fastest due to its simplicity.
 //! However, the compression performance is poor, especially when $`A`$ contains at least one large value.
 //!
-//! ## Compressed format with Elias-Fano encoding
-//!
-//! [`PrefixSummedEliasFano`] is a compressed data structure that stores the prefix-summed sequence from $`A`$
-//! with the Elias-Fano encoding.
-//! Assuming $`N`$ is the sum of values in $`A`$ plus 1 (i.e., $`N = 1 + \sum {a_i}`$),
-//! the total memory is $`n \lceil \lg \frac{N}{n} \rceil + 2n + o(n)`$ in bits,
-//! while supporting constant-time random access.
 //!
 //! ## Compressed format with Directly Addressable Codes
 //!
-//! [`DacsByte`] and [`DacsOpt`] are compressed data structures using Directly Addressable Codes (DACs),
-//! which are randomly-accessible variants of the VByte encoding scheme.
-//! [`DacsByte`] is a faster variant, and [`DacsOpt`] is a smaller variant.
+//! [`DacsByte`] is a compressed data structure using Directly Addressable Codes (DACs),
+//! a randomly-accessible variant of the VByte encoding scheme.
 //!
 //! Let
 //!
@@ -66,9 +56,9 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use sucds::int_vectors::{DacsOpt, prelude::*};
+//! use sucds::int_vectors::{DacsByte, prelude::*};
 //!
-//! let seq = DacsOpt::build_from_slice(&[5, 0, 100000, 334])?;
+//! let seq = DacsByte::build_from_slice(&[5, 0, 100000, 334])?;
 //!
 //! assert_eq!(seq.num_vals(), 4);
 //!
@@ -79,14 +69,11 @@
 //! ```
 pub mod compact_vector;
 pub mod dacs_byte;
-pub mod dacs_opt;
-pub mod prefix_summed_elias_fano;
+
 pub mod prelude;
 
 pub use compact_vector::CompactVector;
 pub use dacs_byte::DacsByte;
-pub use dacs_opt::DacsOpt;
-pub use prefix_summed_elias_fano::PrefixSummedEliasFano;
 
 use anyhow::Result;
 use num_traits::ToPrimitive;
