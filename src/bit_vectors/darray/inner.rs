@@ -15,43 +15,41 @@ const MAX_IN_BLOCK_DISTANCE: usize = 1 << 16;
 
 /// The index implementation of [`DArray`](super::DArray) separated from the bit vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DArrayIndex {
+pub struct DArrayIndex<const OVER_ONE: bool> {
     block_inventory: View<[isize]>,
     subblock_inventory: View<[u16]>,
     overflow_positions: View<[usize]>,
     num_positions: usize,
-    over_one: bool, // WANT_TODO(kampersanda): Solve with generics
 }
 
 /// Builder for [`DArrayIndex`].
 #[derive(Default, Debug, Clone)]
-pub struct DArrayIndexBuilder {
+pub struct DArrayIndexBuilder<const OVER_ONE: bool> {
     block_inventory: Vec<isize>,
     subblock_inventory: Vec<u16>,
     overflow_positions: Vec<usize>,
     num_positions: usize,
-    over_one: bool,
 }
 
-impl Default for DArrayIndex {
+impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
     fn default() -> Self {
-        DArrayIndexBuilder::default().build()
+        DArrayIndexBuilder::<OVER_ONE>::default().build()
     }
 }
 
-impl DArrayIndexBuilder {
+impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
     /// Creates a builder from the given bit vector.
-    pub fn new(bv: &BitVector, over_one: bool) -> Self {
+    pub fn new(bv: &BitVector) -> Self {
         let mut cur_block_positions = vec![];
         let mut block_inventory = vec![];
         let mut subblock_inventory = vec![];
         let mut overflow_positions = vec![];
         let mut num_positions = 0;
 
-        let w = if over_one {
-            DArrayIndex::get_word_over_one
+        let w = if OVER_ONE {
+            DArrayIndex::<OVER_ONE>::get_word_over_one
         } else {
-            DArrayIndex::get_word_over_zero
+            DArrayIndex::<OVER_ONE>::get_word_over_zero
         };
 
         for word_idx in 0..bv.num_words() {
@@ -67,7 +65,7 @@ impl DArrayIndexBuilder {
 
                 cur_block_positions.push(cur_pos);
                 if cur_block_positions.len() == BLOCK_LEN {
-                    DArrayIndex::flush_cur_block(
+                    DArrayIndex::<OVER_ONE>::flush_cur_block(
                         &mut cur_block_positions,
                         &mut block_inventory,
                         &mut subblock_inventory,
@@ -82,7 +80,7 @@ impl DArrayIndexBuilder {
         }
 
         if !cur_block_positions.is_empty() {
-            DArrayIndex::flush_cur_block(
+            DArrayIndex::<OVER_ONE>::flush_cur_block(
                 &mut cur_block_positions,
                 &mut block_inventory,
                 &mut subblock_inventory,
@@ -99,12 +97,11 @@ impl DArrayIndexBuilder {
             subblock_inventory,
             overflow_positions,
             num_positions,
-            over_one,
         }
     }
 
     /// Freezes and returns [`DArrayIndex`].
-    pub fn build(self) -> DArrayIndex {
+    pub fn build(self) -> DArrayIndex<OVER_ONE> {
         let block_inventory = Bytes::from_source(self.block_inventory)
             .view::<[isize]>()
             .unwrap();
@@ -114,25 +111,23 @@ impl DArrayIndexBuilder {
         let overflow_positions = Bytes::from_source(self.overflow_positions)
             .view::<[usize]>()
             .unwrap();
-        DArrayIndex {
+        DArrayIndex::<OVER_ONE> {
             block_inventory,
             subblock_inventory,
             overflow_positions,
             num_positions: self.num_positions,
-            over_one: self.over_one,
         }
     }
 }
 
-impl DArrayIndex {
+impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// Creates a new [`DArrayIndex`] from input bit vector `bv`.
     ///
     /// # Arguments
     ///
     /// - `bv`: Input bit vector.
-    /// - `over_one`: Flag to build the index for ones.
-    pub fn new(bv: &BitVector, over_one: bool) -> Self {
-        DArrayIndexBuilder::new(bv, over_one).build()
+    pub fn new(bv: &BitVector) -> Self {
+        DArrayIndexBuilder::<OVER_ONE>::new(bv).build()
     }
 
     /// Searches the `k`-th iteger.
@@ -156,7 +151,7 @@ impl DArrayIndex {
     /// use sucds::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::new(&bv, true);
+    /// let da = DArrayIndex::<true>::new(&bv);
     ///
     /// unsafe {
     ///     assert_eq!(da.select(&bv, 0), Some(0));
@@ -166,13 +161,13 @@ impl DArrayIndex {
     /// ```
     ///
     /// You can perform selections over unset bits by specifying
-    /// `Self::new(&bv, over_one=false)`.
+    /// `DArrayIndex::<false>::new(&bv)`.
     ///
     /// ```
     /// use sucds::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::new(&bv, false);
+    /// let da = DArrayIndex::<false>::new(&bv);
     ///
     /// unsafe {
     ///     assert_eq!(da.select(&bv, 0), Some(1));
@@ -201,12 +196,10 @@ impl DArrayIndex {
         let sel = if reminder == 0 {
             start_pos
         } else {
-            let w = {
-                if self.over_one {
-                    Self::get_word_over_one
-                } else {
-                    Self::get_word_over_zero
-                }
+            let w = if OVER_ONE {
+                Self::get_word_over_one
+            } else {
+                Self::get_word_over_zero
             };
 
             let mut word_idx = start_pos / 64;
@@ -252,6 +245,9 @@ impl DArrayIndex {
             .view_prefix::<usize>()
             .map_err(|e| anyhow::anyhow!(e))?
             != 0;
+        if over_one != OVER_ONE {
+            return Err(anyhow::anyhow!("mismatched OVER_ONE"));
+        }
 
         let block_inventory = bytes
             .view_prefix_with_elems::<[isize]>(bi_len)
@@ -268,7 +264,6 @@ impl DArrayIndex {
             subblock_inventory,
             overflow_positions,
             num_positions,
-            over_one,
         })
     }
 
@@ -282,7 +277,7 @@ impl DArrayIndex {
         store.extend_from_slice(&self.overflow_positions.len().to_ne_bytes());
         store.extend_from_slice(&self.subblock_inventory.len().to_ne_bytes());
         store.extend_from_slice(&self.num_positions.to_ne_bytes());
-        store.extend_from_slice(&(self.over_one as usize).to_ne_bytes());
+        store.extend_from_slice(&(OVER_ONE as usize).to_ne_bytes());
         store.extend_from_slice(IntoBytes::as_bytes(self.block_inventory.deref()));
         store.extend_from_slice(IntoBytes::as_bytes(self.overflow_positions.deref()));
         store.extend_from_slice(IntoBytes::as_bytes(self.subblock_inventory.deref()));
@@ -323,7 +318,7 @@ impl DArrayIndex {
     }
 }
 
-impl DArrayIndex {
+impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of::<usize>()
@@ -344,7 +339,7 @@ mod tests {
     #[test]
     fn test_all_zeros_index() {
         let bv = BitVector::from_bit(false, 3);
-        let da = DArrayIndex::new(&bv, true);
+        let da = DArrayIndex::<true>::new(&bv);
         unsafe {
             assert_eq!(da.select(&bv, 0), None);
         }
@@ -353,7 +348,7 @@ mod tests {
     #[test]
     fn test_all_ones_index() {
         let bv = BitVector::from_bit(true, 3);
-        let da = DArrayIndex::new(&bv, false);
+        let da = DArrayIndex::<false>::new(&bv);
         unsafe {
             assert_eq!(da.select(&bv, 0), None);
         }
@@ -362,7 +357,7 @@ mod tests {
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([true, false, true, false, true]);
-        let idx = DArrayIndex::new(&bv, true);
+        let idx = DArrayIndex::<true>::new(&bv);
         let bytes = idx.to_bytes();
         let other = DArrayIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
@@ -371,7 +366,7 @@ mod tests {
     #[test]
     fn test_builder_roundtrip() {
         let bv = BitVector::from_bits([true, false, true, true, false, false]);
-        let builder = DArrayIndexBuilder::new(&bv, true);
+        let builder = DArrayIndexBuilder::<true>::new(&bv);
         let idx = builder.clone().build();
         let bytes = builder.build().to_bytes();
         let from = DArrayIndex::from_bytes(bytes).unwrap();

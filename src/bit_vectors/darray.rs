@@ -54,8 +54,8 @@ use inner::{DArrayIndex, DArrayIndexBuilder};
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct DArray {
     bv: BitVector,
-    s1: DArrayIndex,
-    s0: Option<DArrayIndex>,
+    s1: DArrayIndex<true>,
+    s0: Option<DArrayIndex<false>>,
     r9: Option<Rank9SelIndex>,
 }
 
@@ -70,7 +70,7 @@ impl DArray {
         I: IntoIterator<Item = bool>,
     {
         let bv = BitVector::from_bits(bits);
-        let s1 = DArrayIndexBuilder::new(&bv, true).build();
+        let s1 = DArrayIndexBuilder::<true>::new(&bv).build();
         Self {
             bv,
             s1,
@@ -89,7 +89,7 @@ impl DArray {
     /// Builds an index to enable select0.
     #[must_use]
     pub fn enable_select0(mut self) -> Self {
-        self.s0 = Some(DArrayIndexBuilder::new(&self.bv, false).build());
+        self.s0 = Some(DArrayIndexBuilder::<false>::new(&self.bv).build());
         self
     }
 
@@ -111,12 +111,12 @@ impl DArray {
     }
 
     /// Returns the reference of the internal select1 index.
-    pub const fn s1_index(&self) -> &DArrayIndex {
+    pub const fn s1_index(&self) -> &DArrayIndex<true> {
         &self.s1
     }
 
     /// Returns the reference of the internal select0 index.
-    pub const fn s0_index(&self) -> Option<&DArrayIndex> {
+    pub const fn s0_index(&self) -> Option<&DArrayIndex<false>> {
         self.s0.as_ref()
     }
 
