@@ -26,13 +26,9 @@ fn show_memories(p: f64) {
     print_memory("Rank9Sel", bytes);
 
     let bytes = {
-        let idx = sucds::bit_vectors::Rank9Sel::build_from_bits(
-            bits.iter().cloned(),
-            false,
-            true,
-            true,
-        )
-        .unwrap();
+        let idx =
+            sucds::bit_vectors::Rank9Sel::build_from_bits(bits.iter().cloned(), false, true, true)
+                .unwrap();
         idx.size_in_bytes()
     };
     print_memory("Rank9Sel (with select hints)", bytes);
@@ -48,18 +44,6 @@ fn show_memories(p: f64) {
         idx.size_in_bytes()
     };
     print_memory("DArray (with rank index)", bytes);
-
-    let bytes = {
-        let idx = sucds::bit_vectors::SArray::from_bits(bits.iter().cloned());
-        idx.size_in_bytes()
-    };
-    print_memory("SArray", bytes);
-
-    let bytes = {
-        let idx = sucds::bit_vectors::SArray::from_bits(bits.iter().cloned()).enable_rank();
-        idx.size_in_bytes()
-    };
-    print_memory("SArray (with rank index)", bytes);
 }
 
 fn print_memory(name: &str, bytes: usize) {
