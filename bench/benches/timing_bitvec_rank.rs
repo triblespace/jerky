@@ -47,11 +47,6 @@ fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], quer
         let idx = sucds::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
-
-    group.bench_function("sucds/SArray", |b| {
-        let idx = sucds::bit_vectors::SArray::from_bits(bits.iter().cloned()).enable_rank();
-        b.iter(|| run_queries(&idx, &queries));
-    });
 }
 
 macro_rules! criterion_common {

@@ -225,7 +225,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::new(&bv);
@@ -272,7 +272,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::new(&bv);
@@ -308,7 +308,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndexBuilder::new(&bv).select1_hints().build();
@@ -384,7 +384,7 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::Rank9SelIndex};
+    /// use sucds::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndexBuilder::new(&bv).select0_hints().build();
