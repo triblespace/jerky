@@ -58,7 +58,10 @@ pub mod int_vectors;
 mod intrinsics;
 pub mod utils;
 
-pub use data::{BitVectorData, IntVectorData};
+pub use bit_vectors::data::{
+    BitVector as IndexedBitVector, BitVectorData, BitVectorIndex, NoIndex,
+};
+pub use data::IntVectorData;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std
 // containers with different type annotations.
