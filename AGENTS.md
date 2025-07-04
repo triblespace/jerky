@@ -1,6 +1,6 @@
 # AGENT Instructions
 
-This repository contains the `sucds` Rust crate.
+This repository contains the `jerky` Rust crate.
 
 ## Project Priorities
 

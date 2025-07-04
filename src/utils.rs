@@ -8,7 +8,7 @@ use crate::broadword;
 /// # Examples
 ///
 /// ```
-/// use sucds::utils::needed_bits;
+/// use jerky::utils::needed_bits;
 ///
 /// assert_eq!(needed_bits(0), 1);
 /// assert_eq!(needed_bits(1), 1);
@@ -25,7 +25,7 @@ pub fn needed_bits(x: usize) -> usize {
 /// # Examples
 ///
 /// ```
-/// use sucds::utils::ceiled_divide;
+/// use jerky::utils::ceiled_divide;
 ///
 /// assert_eq!(ceiled_divide(10, 2), 5);
 /// assert_eq!(ceiled_divide(10, 3), 4);

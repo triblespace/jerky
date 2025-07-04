@@ -25,7 +25,7 @@ use inner::{DArrayIndex, DArrayIndexBuilder};
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::{DArray, Access, Rank, Select};
+/// use jerky::bit_vectors::{DArray, Access, Rank, Select};
 ///
 /// let da = DArray::from_bits([true, false, false, true])
 ///     .enable_rank()
@@ -190,7 +190,7 @@ impl Access for DArray {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{DArray, Access};
+    /// use jerky::bit_vectors::{DArray, Access};
     ///
     /// let da = DArray::from_bits([true, false, false]);
     ///
@@ -219,7 +219,7 @@ impl Rank for DArray {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{DArray, Rank};
+    /// use jerky::bit_vectors::{DArray, Rank};
     ///
     /// let da = DArray::from_bits([true, false, false, true]).enable_rank();
     ///
@@ -248,7 +248,7 @@ impl Rank for DArray {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{DArray, Rank};
+    /// use jerky::bit_vectors::{DArray, Rank};
     ///
     /// let da = DArray::from_bits([true, false, false, true]).enable_rank();
     ///
@@ -275,7 +275,7 @@ impl Select for DArray {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{DArray, Select};
+    /// use jerky::bit_vectors::{DArray, Select};
     ///
     /// let da = DArray::from_bits([true, false, false, true]);
     ///
@@ -301,7 +301,7 @@ impl Select for DArray {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{DArray, Select};
+    /// use jerky::bit_vectors::{DArray, Select};
     ///
     /// let da = DArray::from_bits([true, false, false, true]).enable_select0();
     ///

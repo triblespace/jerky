@@ -1,14 +1,14 @@
-# Succinct data structures in Rust
+# Succinct on-disk data structures in Rust
 
-![](https://github.com/triblespace/sucds/actions/workflows/rust.yml/badge.svg)
-[![Documentation](https://docs.rs/sucds/badge.svg)](https://docs.rs/sucds)
-[![Crates.io](https://img.shields.io/crates/v/sucds.svg)](https://crates.io/crates/sucds)
+![](https://github.com/triblespace/jerky/actions/workflows/rust.yml/badge.svg)
+[![Documentation](https://docs.rs/jerky/badge.svg)](https://docs.rs/jerky)
+[![Crates.io](https://img.shields.io/crates/v/jerky.svg)](https://crates.io/crates/jerky)
 
-Sucds provides some [succinct data structures](https://en.wikipedia.org/wiki/Succinct_data_structure) written in Rust.
+Jerky provides some [succinct data structures](https://en.wikipedia.org/wiki/Succinct_data_structure) written in Rust.
 
 ## Documentation
 
-https://docs.rs/sucds/
+https://docs.rs/jerky/
 
 ## Limitation
 

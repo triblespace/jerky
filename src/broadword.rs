@@ -46,7 +46,7 @@ pub(crate) const fn bytes_sum(x: usize) -> usize {
 /// # Examples
 ///
 /// ```
-/// use sucds::broadword::popcount;
+/// use jerky::broadword::popcount;
 ///
 /// assert_eq!(popcount(0), 0);
 /// assert_eq!(popcount(usize::MAX), 64);
@@ -70,7 +70,7 @@ pub const fn popcount(x: usize) -> usize {
 /// # Examples
 ///
 /// ```
-/// use sucds::broadword::select_in_word;
+/// use jerky::broadword::select_in_word;
 ///
 /// assert_eq!(select_in_word(0b1000011, 0), Some(0));
 /// assert_eq!(select_in_word(0b1000011, 1), Some(1));
@@ -111,7 +111,7 @@ pub(crate) fn bit_position(x: usize) -> usize {
 /// # Examples
 ///
 /// ```
-/// use sucds::broadword::lsb;
+/// use jerky::broadword::lsb;
 ///
 /// assert_eq!(lsb(0b101100), Some(2));
 /// assert_eq!(lsb(0b0), None);
@@ -138,7 +138,7 @@ pub fn lsb(x: usize) -> Option<usize> {
 /// # Examples
 ///
 /// ```
-/// use sucds::broadword::msb;
+/// use jerky::broadword::msb;
 ///
 /// assert_eq!(msb(0b101100), Some(5));
 /// assert_eq!(msb(0b0), None);

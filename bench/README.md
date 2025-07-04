@@ -1,4 +1,4 @@
-# sucds/bench
+# jerky/bench
 
 ## Benchmark for bit vectors
 

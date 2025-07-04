@@ -1,5 +1,5 @@
-use sucds::bit_vectors::{BitVector, Rank};
-use sucds::int_vectors::CompactVector;
+use jerky::bit_vectors::{BitVector, Rank};
+use jerky::int_vectors::CompactVector;
 
 const DBLP_PSEF_STR: &str = include_str!("../data/texts/dblp.1MiB.txt");
 const DNA_PSEF_STR: &str = include_str!("../data/texts/dna.1MiB.txt");
@@ -29,7 +29,7 @@ fn show_memories(title: &str, text: &CompactVector) {
 
     let bytes = {
         let idx =
-            sucds::char_sequences::WaveletMatrix::<sucds::bit_vectors::Rank9Sel>::new(text.clone())
+            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::Rank9Sel>::new(text.clone())
                 .unwrap();
         idx.size_in_bytes()
     };
@@ -37,7 +37,7 @@ fn show_memories(title: &str, text: &CompactVector) {
 
     let bytes = {
         let idx =
-            sucds::char_sequences::WaveletMatrix::<sucds::bit_vectors::DArray>::new(text.clone())
+            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::DArray>::new(text.clone())
                 .unwrap();
         idx.size_in_bytes()
     };
