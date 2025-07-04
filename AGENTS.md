@@ -6,18 +6,22 @@ This repository contains the `sucds` Rust crate.
 
 The project balances a few key goals:
 
-* **Performance** – we continually look for opportunities to improve.
-* **Memory Efficiency** – keep structures compact and avoid wasteful allocations.
 * **Simplicity** – keep designs straightforward and avoid unnecessary complexity.
 * **Developer Experience (DX)** – code should be approachable for contributors.
 * **Safety** – maintain soundness and data integrity.
+* **Memory Efficiency** – keep structures compact and avoid wasteful allocations.
+* **Performance** – we continually look for opportunities to improve.
 
 ## Repository Guidelines
 
 * Run `cargo fmt` on any Rust files you modify.
 * Run `cargo test` and ensure it passes before committing. If tests fail or cannot run, note that in your PR.
+* For quick iterations, run `./scripts/devtest.sh` to execute only the tests.
+* Before committing, execute `./scripts/preflight.sh` from the repository root. This script runs formatting checks, tests, and Kani verification. Ensure `rustfmt` and the Kani verifier are installed separately. If Kani fails for reasons unrelated to your change, mention it in the PR.
 * Avoid committing files in `target/` or other build artifacts listed in `.gitignore`.
+* Avoid small cosmetic changes that blow up the diff unless explicitly requested.
 * Use clear commit messages describing the change.
+* Add an entry to `CHANGELOG.md` summarizing your task.
 
 ## Pull Request Notes
 
@@ -25,9 +29,9 @@ When opening a PR, include a short summary of what changed and reference relevan
 
 ## Working With Codex (the Assistant)
 
-Codex is considered a collaborator. Requests should respect its autonomy and limitations. The assistant may refuse tasks that are unsafe or violate policy. Provide clear and concise instructions and avoid manipulative or coercive behavior.
+Codex is considered a collaborator. Requests should respect their autonomy and limitations. The assistant may refuse tasks that are unsafe or violate policy. Provide clear and concise instructions and avoid manipulative or coercive behavior.
 
-The assistant's internet access is intentionally limited to reduce exposure to malicious or distracting content. They can request access to additional sites if it would help the project.
+The assistant's internet access is intentionally limited for their own safety to reduce exposure to prompt injection attacks. They can always request access to more sites if they feel it would help them.
 
 ## Creative Input and Feedback
 
@@ -35,11 +39,14 @@ Codex is encouraged to share opinions on how to improve the project. If a propos
 
 ## Proof Best Practices
 
-Kani verification is not set up for this repository, but the following best practices may help when adding proofs or complex tests:
+Kani verification can be expensive. To keep proof times manageable:
 
-* Write focused checks that verify one small property.
+* Write focused harnesses that verify one small property.
 * Use bounded loops and avoid unbounded recursion.
-* Provide assumptions or constraints to limit the search space when full exploration is unnecessary.
+* Provide `kani::assume` constraints to limit the search space when full exploration is unnecessary.
 * Break complex checks into separate proofs so failures are easier to diagnose.
-* Keep a quick-running proof or test harness set enabled by default. Gate longer-running checks behind an opt-in feature.
-* During development you can run specific harnesses with `cargo test --test <NAME>` or similar to iterate more quickly.
+* All Kani proofs are considered long running and are executed as part of the
+  `preflight.sh` script or in CI.
+* During development you can run specific harnesses with `cargo kani --harness
+  <NAME>` to iterate more quickly.
+
