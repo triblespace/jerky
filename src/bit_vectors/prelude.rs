@@ -4,6 +4,6 @@
 //!
 //! ```
 //! # #![allow(unused_imports)]
-//! use sucds::bit_vectors::prelude::*;
+//! use jerky::bit_vectors::prelude::*;
 //! ```
 pub use crate::bit_vectors::{Access, Build, NumBits, Rank, Select};

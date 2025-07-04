@@ -16,7 +16,7 @@ pub const WORD_LEN: usize = std::mem::size_of::<usize>() * 8;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::BitVector;
+/// use jerky::bit_vectors::BitVector;
 ///
 /// let mut bv = BitVector::new();
 /// bv.push_bit(true);
@@ -46,7 +46,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::new();
     /// assert_eq!(bv.len(), 0);
@@ -64,7 +64,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::with_capacity(40);
     /// assert_eq!(bv.len(), 0);
@@ -88,7 +88,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bit(false, 5);
     /// assert_eq!(bv.len(), 5);
@@ -114,7 +114,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false]);
     /// assert_eq!(bv.len(), 3);
@@ -138,7 +138,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, false, false]);
     /// assert_eq!(bv.get_bit(0), Some(true));
@@ -170,7 +170,7 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let mut bv = BitVector::from_bits([false, true, false]);
     /// bv.set_bit(1, false)?;
@@ -202,7 +202,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let mut bv = BitVector::new();
     /// bv.push_bit(true);
@@ -234,7 +234,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.get_bits(1, 2), Some(0b10));
@@ -288,7 +288,7 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let mut bv = BitVector::from_bit(false, 4);
     /// bv.set_bits(1, 0b11, 2)?;
@@ -358,7 +358,7 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let mut bv = BitVector::new();
     /// bv.push_bits(0b11, 2)?;
@@ -415,7 +415,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false, true]);
     /// assert_eq!(bv.predecessor1(3), Some(3));
@@ -455,7 +455,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.predecessor0(3), Some(3));
@@ -495,7 +495,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.successor1(0), Some(0));
@@ -536,7 +536,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false, true]);
     /// assert_eq!(bv.successor0(0), Some(0));
@@ -568,7 +568,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false]);
     /// let mut it = bv.iter();
@@ -590,7 +590,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, true, false, true]);
     /// let mut it = bv.unary_iter(1);
@@ -612,7 +612,7 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.get_word64(1), Some(0b10));
@@ -721,7 +721,7 @@ impl Access for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, Access};
+    /// use jerky::bit_vectors::{BitVector, Access};
     ///
     /// let bv = BitVector::from_bits([true, false, false]);
     /// assert_eq!(bv.access(0), Some(true));
@@ -750,7 +750,7 @@ impl Rank for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, Rank};
+    /// use jerky::bit_vectors::{BitVector, Rank};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.rank1(1), Some(1));
@@ -784,7 +784,7 @@ impl Rank for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, Rank};
+    /// use jerky::bit_vectors::{BitVector, Rank};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.rank0(1), Some(0));
@@ -809,7 +809,7 @@ impl Select for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, Select};
+    /// use jerky::bit_vectors::{BitVector, Select};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.select1(0), Some(0));
@@ -845,7 +845,7 @@ impl Select for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, Select};
+    /// use jerky::bit_vectors::{BitVector, Select};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.select0(0), Some(1));

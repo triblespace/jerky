@@ -29,7 +29,7 @@ impl<'a> UnaryIter<'a> {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false, false, true, true]);
     /// let mut it = bv.unary_iter(0);
@@ -67,7 +67,7 @@ impl<'a> UnaryIter<'a> {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::BitVector;
     ///
     /// let bv = BitVector::from_bits([false, true, false, false, true, true]);
     /// let mut it = bv.unary_iter(0);

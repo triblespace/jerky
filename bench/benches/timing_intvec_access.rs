@@ -7,7 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
-use sucds::int_vectors::Access;
+use jerky::int_vectors::Access;
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
@@ -81,13 +81,13 @@ fn run_queries<G: Access>(idx: &G, queries: &[usize]) {
 fn perform_intvec_access(group: &mut BenchmarkGroup<WallTime>, vals: &[u32]) {
     let queries = gen_random_ints(NUM_QUERIES, 0, vals.len(), SEED_QUERIES);
 
-    group.bench_function("sucds/CompactVector", |b| {
-        let idx = sucds::int_vectors::CompactVector::from_slice(vals).unwrap();
+    group.bench_function("jerky/CompactVector", |b| {
+        let idx = jerky::int_vectors::CompactVector::from_slice(vals).unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("sucds/DacsByte", |b| {
-        let idx = sucds::int_vectors::DacsByte::from_slice(vals).unwrap();
+    group.bench_function("jerky/DacsByte", |b| {
+        let idx = jerky::int_vectors::DacsByte::from_slice(vals).unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

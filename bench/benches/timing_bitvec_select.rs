@@ -6,8 +6,8 @@ use rand_chacha::ChaChaRng;
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
-
-use sucds::bit_vectors::Select;
+use jerky::bit_vectors::Build;
+use jerky::bit_vectors::Select;
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
@@ -42,20 +42,20 @@ fn run_queries<S: Select>(idx: &S, queries: &[usize]) {
 }
 
 fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
-    group.bench_function("sucds/BitVector", |b| {
-        let idx = sucds::bit_vectors::BitVector::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/BitVector", |b| {
+        let idx = jerky::bit_vectors::BitVector::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("sucds/Rank9Sel", |b| {
+    group.bench_function("jerky/Rank9Sel", |b| {
         let idx =
-            sucds::bit_vectors::Rank9Sel::build_from_bits(bits.iter().cloned(), false, true, false)
+            jerky::bit_vectors::Rank9Sel::build_from_bits(bits.iter().cloned(), false, true, false)
                 .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("sucds/DArray", |b| {
-        let idx = sucds::bit_vectors::DArray::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/DArray", |b| {
+        let idx = jerky::bit_vectors::DArray::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
 }

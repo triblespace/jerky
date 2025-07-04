@@ -18,7 +18,7 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::int_vectors::CompactVector;
+/// use jerky::int_vectors::CompactVector;
 ///
 /// // Can store integers within 3 bits each.
 /// let mut cv = CompactVector::new(3)?;
@@ -56,7 +56,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::new(3)?;
     /// assert_eq!(cv.len(), 0);
@@ -91,7 +91,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::with_capacity(10, 3)?;
     ///
@@ -134,7 +134,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::from_int(7, 2, 3)?;
     /// assert_eq!(cv.len(), 2);
@@ -177,7 +177,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::from_slice(&[7, 2])?;
     /// assert_eq!(cv.len(), 2);
@@ -222,7 +222,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let cv = CompactVector::from_slice(&[5, 256, 0])?;
     /// assert_eq!(cv.get_int(0), Some(5));
@@ -257,7 +257,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::from_int(0, 2, 3)?;
     /// cv.set_int(1, 4)?;
@@ -304,7 +304,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::new(3)?;
     /// cv.push_int(2)?;
@@ -345,7 +345,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut cv = CompactVector::new(3)?;
     /// cv.extend([2, 1, 3])?;
@@ -369,7 +369,7 @@ impl CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let cv = CompactVector::from_slice(&[5, 256, 0])?;
     /// let mut it = cv.iter();
@@ -445,7 +445,7 @@ impl Access for CompactVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::{CompactVector, Access};
+    /// use jerky::int_vectors::{CompactVector, Access};
     ///
     /// let cv = CompactVector::from_slice(&[5, 256, 0])?;
     /// assert_eq!(cv.access(0), Some(5));
