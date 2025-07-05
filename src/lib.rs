@@ -58,9 +58,7 @@ pub mod int_vectors;
 mod intrinsics;
 pub mod utils;
 
-pub use bit_vectors::data::{
-    BitVector as IndexedBitVector, BitVectorData, BitVectorIndex, NoIndex,
-};
+pub use bit_vectors::{BitVector, BitVectorData, BitVectorIndex, NoIndex, RawBitVector};
 pub use data::IntVectorData;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std

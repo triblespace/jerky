@@ -5,8 +5,7 @@
 //! reconstructed directly from [`anybytes::Bytes`] obtained via an mmap
 //! wrapper like `Bytes::from_source`.
 
-use crate::bit_vectors::bit_vector::BitVector as RawBitVector;
-use crate::bit_vectors::bit_vector::WORD_LEN;
+use crate::bit_vectors::bit_vector::{RawBitVector, WORD_LEN};
 use crate::bit_vectors::{Access, NumBits, Rank, Select};
 use anybytes::{Bytes, View};
 use anyhow::Result;

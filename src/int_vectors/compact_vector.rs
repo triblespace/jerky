@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::BitVector;
+use crate::bit_vectors::RawBitVector;
 use crate::int_vectors::prelude::*;
 use crate::utils;
 
@@ -36,7 +36,7 @@ use crate::utils;
 /// ```
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct CompactVector {
-    chunks: BitVector,
+    chunks: RawBitVector,
     len: usize,
     width: usize,
 }
@@ -69,7 +69,7 @@ impl CompactVector {
             return Err(anyhow!("width must be in 1..=64, but got {width}."));
         }
         Ok(Self {
-            chunks: BitVector::default(),
+            chunks: RawBitVector::default(),
             len: 0,
             width,
         })
@@ -108,7 +108,7 @@ impl CompactVector {
             return Err(anyhow!("width must be in 1..=64, but got {width}."));
         }
         Ok(Self {
-            chunks: BitVector::with_capacity(capa * width),
+            chunks: RawBitVector::with_capacity(capa * width),
             len: 0,
             width,
         })

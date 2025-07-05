@@ -39,7 +39,7 @@ fn run_queries<R: Rank>(idx: &R, queries: &[usize]) {
 
 fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
     group.bench_function("jerky/BitVector", |b| {
-        let idx = jerky::bit_vectors::BitVector::from_bits(bits.iter().cloned());
+        let idx = jerky::bit_vectors::RawBitVector::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
 

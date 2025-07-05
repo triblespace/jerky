@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::{Access, BitVector, Build, NumBits, Rank, Rank9Sel, Select};
+use crate::bit_vectors::{Access, Build, NumBits, Rank, Rank9Sel, RawBitVector, Select};
 use crate::int_vectors::CompactVector;
 use crate::utils;
 
@@ -85,7 +85,7 @@ where
         for depth in 0..alph_width {
             let mut next_zeros = CompactVector::new(alph_width).unwrap();
             let mut next_ones = CompactVector::new(alph_width).unwrap();
-            let mut bv = BitVector::new();
+            let mut bv = RawBitVector::new();
             Self::filter(
                 &zeros,
                 alph_width - depth - 1,
@@ -113,7 +113,7 @@ where
         shift: usize,
         next_zeros: &mut CompactVector,
         next_ones: &mut CompactVector,
-        bv: &mut BitVector,
+        bv: &mut RawBitVector,
     ) {
         for val in seq.iter() {
             let bit = ((val >> shift) & 1) == 1;

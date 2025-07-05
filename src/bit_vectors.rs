@@ -82,11 +82,9 @@ pub mod data;
 pub mod prelude;
 pub mod rank9sel;
 
-pub use bit_vector::BitVector;
+pub use bit_vector::RawBitVector;
 pub use darray::DArray;
-pub use data::{
-    BitVector as IndexedBitVector, BitVectorData, BitVectorIndex, IndexBuilder, NoIndex,
-};
+pub use data::{BitVector, BitVectorData, BitVectorIndex, IndexBuilder, NoIndex};
 pub use rank9sel::Rank9Sel;
 
 use anyhow::Result;
