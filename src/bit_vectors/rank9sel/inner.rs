@@ -5,6 +5,7 @@ use anybytes::{Bytes, View};
 
 use anyhow::Result;
 
+use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::BitVector;
 use crate::bit_vectors::NumBits;
 use crate::broadword;
@@ -31,10 +32,24 @@ pub struct Rank9SelIndexBuilder {
     select0_hints: Option<Vec<usize>>,
 }
 
+impl crate::bit_vectors::data::IndexBuilder for Rank9SelIndexBuilder {
+    type Built = Rank9SelIndex;
+
+    fn build(data: &BitVectorData) -> Self::Built {
+        Rank9SelIndexBuilder::new(data).build()
+    }
+}
+
 impl Rank9SelIndexBuilder {
-    /// Creates a builder from the given bit vector.
-    pub fn new(bv: &BitVector) -> Self {
-        Self::build_rank(bv)
+    /// Creates a builder from the given bit vector data.
+    pub fn new(data: &BitVectorData) -> Self {
+        Self::build_rank(data)
+    }
+
+    /// Creates a builder from a raw [`BitVector`].
+    pub fn from_raw(bv: &BitVector) -> Self {
+        let data = BitVectorData::from(bv.clone());
+        Self::new(&data)
     }
 
     /// Builds an index for faster `select1` queries.
@@ -66,15 +81,15 @@ impl Rank9SelIndexBuilder {
         }
     }
 
-    fn build_rank(bv: &BitVector) -> Self {
+    fn build_rank(data: &BitVectorData) -> Self {
         let mut next_rank = 0;
         let mut cur_subrank = 0;
         let mut subranks = 0;
 
         let mut block_rank_pairs = vec![next_rank];
 
-        for i in 0..bv.num_words() {
-            let word_pop = broadword::popcount(bv.words()[i]);
+        for i in 0..data.num_words() {
+            let word_pop = broadword::popcount(data.words()[i]);
 
             let shift = i % BLOCK_LEN;
             if shift != 0 {
@@ -93,21 +108,21 @@ impl Rank9SelIndexBuilder {
             }
         }
 
-        let left = BLOCK_LEN - (bv.num_words() % BLOCK_LEN);
+        let left = BLOCK_LEN - (data.num_words() % BLOCK_LEN);
         for _ in 0..left {
             subranks <<= 9;
             subranks |= cur_subrank;
         }
         block_rank_pairs.push(subranks);
 
-        if bv.num_words() % BLOCK_LEN != 0 {
+        if data.num_words() % BLOCK_LEN != 0 {
             block_rank_pairs.push(next_rank);
             block_rank_pairs.push(0);
         }
         block_rank_pairs.shrink_to_fit();
 
         Self {
-            len: bv.num_bits(),
+            len: data.len(),
             block_rank_pairs,
             select1_hints: None,
             select0_hints: None,
@@ -163,9 +178,15 @@ impl Rank9SelIndexBuilder {
 }
 
 impl Rank9SelIndex {
-    /// Creates a new vector from input bit vector `bv`.
-    pub fn new(bv: &BitVector) -> Self {
-        Rank9SelIndexBuilder::new(bv).build()
+    /// Creates a new index from the given bit vector data.
+    pub fn new(data: &BitVectorData) -> Self {
+        Rank9SelIndexBuilder::new(data).build()
+    }
+
+    /// Creates a new index from a raw [`BitVector`].
+    pub fn from_raw(bv: &BitVector) -> Self {
+        let data = BitVectorData::from(bv.clone());
+        Self::new(&data)
     }
 
     /// Gets the number of bits set.
@@ -228,27 +249,25 @@ impl Rank9SelIndex {
     /// use jerky::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::new(&bv);
-    ///
-    /// unsafe {
-    ///     assert_eq!(idx.rank1(&bv, 1), Some(1));
-    ///     assert_eq!(idx.rank1(&bv, 2), Some(1));
-    ///     assert_eq!(idx.rank1(&bv, 3), Some(1));
-    ///     assert_eq!(idx.rank1(&bv, 4), Some(2));
-    ///     assert_eq!(idx.rank1(&bv, 5), None);
-    /// }
+    /// let idx = Rank9SelIndex::from_raw(&bv);
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(idx.rank1(&data, 1), Some(1));
+    /// assert_eq!(idx.rank1(&data, 2), Some(1));
+    /// assert_eq!(idx.rank1(&data, 3), Some(1));
+    /// assert_eq!(idx.rank1(&data, 4), Some(2));
+    /// assert_eq!(idx.rank1(&data, 5), None);
     /// ```
-    pub unsafe fn rank1(&self, bv: &BitVector, pos: usize) -> Option<usize> {
-        if bv.num_bits() < pos {
+    pub fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
+        if data.len() < pos {
             return None;
         }
-        if pos == bv.num_bits() {
+        if pos == data.len() {
             return Some(self.num_ones());
         }
         let (sub_bpos, sub_left) = (pos / 64, pos % 64);
         let mut r = self.sub_block_rank(sub_bpos);
         if sub_left != 0 {
-            r += broadword::popcount(bv.words()[sub_bpos] << (64 - sub_left));
+            r += broadword::popcount(data.words()[sub_bpos] << (64 - sub_left));
         }
         Some(r)
     }
@@ -275,18 +294,16 @@ impl Rank9SelIndex {
     /// use jerky::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::new(&bv);
-    ///
-    /// unsafe {
-    ///     assert_eq!(idx.rank0(&bv, 1), Some(0));
-    ///     assert_eq!(idx.rank0(&bv, 2), Some(1));
-    ///     assert_eq!(idx.rank0(&bv, 3), Some(2));
-    ///     assert_eq!(idx.rank0(&bv, 4), Some(2));
-    ///     assert_eq!(idx.rank0(&bv, 5), None);
-    /// }
+    /// let idx = Rank9SelIndex::from_raw(&bv);
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(idx.rank0(&data, 1), Some(0));
+    /// assert_eq!(idx.rank0(&data, 2), Some(1));
+    /// assert_eq!(idx.rank0(&data, 3), Some(2));
+    /// assert_eq!(idx.rank0(&data, 4), Some(2));
+    /// assert_eq!(idx.rank0(&data, 5), None);
     /// ```
-    pub unsafe fn rank0(&self, bv: &BitVector, pos: usize) -> Option<usize> {
-        Some(pos - self.rank1(bv, pos)?)
+    pub fn rank0(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
+        Some(pos - self.rank1(data, pos)?)
     }
 
     /// Searches the position of the `k`-th bit set, or
@@ -311,15 +328,13 @@ impl Rank9SelIndex {
     /// use jerky::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::new(&bv).select1_hints().build();
-    ///
-    /// unsafe {
-    ///     assert_eq!(idx.select1(&bv, 0), Some(0));
-    ///     assert_eq!(idx.select1(&bv, 1), Some(3));
-    ///     assert_eq!(idx.select1(&bv, 2), None);
-    /// }
+    /// let idx = Rank9SelIndexBuilder::from_raw(&bv).select1_hints().build();
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(idx.select1(&data, 0), Some(0));
+    /// assert_eq!(idx.select1(&data, 1), Some(3));
+    /// assert_eq!(idx.select1(&data, 2), None);
     /// ```
-    pub unsafe fn select1(&self, bv: &BitVector, k: usize) -> Option<usize> {
+    pub fn select1(&self, data: &BitVectorData, k: usize) -> Option<usize> {
         if self.num_ones() <= k {
             return None;
         }
@@ -361,7 +376,7 @@ impl Rank9SelIndex {
 
         let word_offset = block_offset + sub_block_offset;
         let sel = word_offset * 64
-            + broadword::select_in_word(bv.words()[word_offset], k - cur_rank).unwrap();
+            + broadword::select_in_word(data.words()[word_offset], k - cur_rank).unwrap();
         Some(sel)
     }
 
@@ -387,15 +402,13 @@ impl Rank9SelIndex {
     /// use jerky::bit_vectors::{BitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::new(&bv).select0_hints().build();
-    ///
-    /// unsafe {
-    ///     assert_eq!(idx.select0(&bv, 0), Some(1));
-    ///     assert_eq!(idx.select0(&bv, 1), Some(2));
-    ///     assert_eq!(idx.select0(&bv, 2), None);
-    /// }
+    /// let idx = Rank9SelIndexBuilder::from_raw(&bv).select0_hints().build();
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(idx.select0(&data, 0), Some(1));
+    /// assert_eq!(idx.select0(&data, 1), Some(2));
+    /// assert_eq!(idx.select0(&data, 2), None);
     /// ```
-    pub unsafe fn select0(&self, bv: &BitVector, k: usize) -> Option<usize> {
+    pub fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize> {
         if self.num_zeros() <= k {
             return None;
         }
@@ -437,7 +450,7 @@ impl Rank9SelIndex {
 
         let word_offset = block_offset + sub_block_offset;
         let sel = word_offset * 64
-            + broadword::select_in_word(!bv.words()[word_offset], k - cur_rank).unwrap();
+            + broadword::select_in_word(!data.words()[word_offset], k - cur_rank).unwrap();
         Some(sel)
     }
 }
@@ -535,6 +548,24 @@ impl Rank9SelIndex {
     }
 }
 
+impl crate::bit_vectors::data::BitVectorIndex for Rank9SelIndex {
+    fn num_ones(&self, _data: &BitVectorData) -> usize {
+        self.num_ones()
+    }
+
+    fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
+        Rank9SelIndex::rank1(self, data, pos)
+    }
+
+    fn select1(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        Rank9SelIndex::select1(self, data, k)
+    }
+
+    fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        Rank9SelIndex::select0(self, data, k)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,7 +573,7 @@ mod tests {
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([false, true, true, false, true]);
-        let idx = Rank9SelIndexBuilder::new(&bv)
+        let idx = Rank9SelIndexBuilder::from_raw(&bv)
             .select1_hints()
             .select0_hints()
             .build();
