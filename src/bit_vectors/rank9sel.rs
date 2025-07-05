@@ -7,12 +7,12 @@ use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::prelude::*;
-use crate::bit_vectors::BitVector;
+use crate::bit_vectors::RawBitVector;
 use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 
 /// Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
 ///
-/// This builds rank/select indices on [`BitVector`] taking
+/// This builds rank/select indices on [`RawBitVector`] taking
 ///
 /// - 25% overhead of space for the rank index, and
 /// - 3% overhead of space for the select index (together with the rank's overhead).
@@ -57,13 +57,13 @@ use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 ///  - S. Vigna, "Broadword implementation of rank/select queries," In WEA, 2008.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9Sel {
-    bv: BitVector,
+    bv: RawBitVector,
     rs: Rank9SelIndex,
 }
 
 impl Rank9Sel {
     /// Creates a new vector from input bit vector `bv`.
-    pub fn new(bv: BitVector) -> Self {
+    pub fn new(bv: RawBitVector) -> Self {
         let rs = Rank9SelIndex::from_raw(&bv);
         Self { bv, rs }
     }
@@ -77,11 +77,11 @@ impl Rank9Sel {
     where
         I: IntoIterator<Item = bool>,
     {
-        Self::new(BitVector::from_bits(bits))
+        Self::new(RawBitVector::from_bits(bits))
     }
 
     /// Returns the reference of the internal bit vector.
-    pub const fn bit_vector(&self) -> &BitVector {
+    pub const fn bit_vector(&self) -> &RawBitVector {
         &self.bv
     }
 
@@ -124,7 +124,7 @@ impl Build for Rank9Sel {
         I: IntoIterator<Item = bool>,
         Self: Sized,
     {
-        let bv = BitVector::from_bits(bits);
+        let bv = RawBitVector::from_bits(bits);
         let mut builder = Rank9SelIndexBuilder::from_raw(&bv);
         if with_select1 {
             builder = builder.select1_hints();

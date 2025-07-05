@@ -6,7 +6,7 @@ use anybytes::{Bytes, View};
 use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorData;
-use crate::bit_vectors::BitVector;
+use crate::bit_vectors::RawBitVector;
 use crate::bit_vectors::{Access, NumBits};
 use crate::broadword;
 
@@ -109,8 +109,8 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         }
     }
 
-    /// Creates a builder from a raw [`BitVector`].
-    pub fn from_raw(bv: &BitVector) -> Self {
+    /// Creates a builder from a raw [`RawBitVector`].
+    pub fn from_raw(bv: &RawBitVector) -> Self {
         let data = BitVectorData::from(bv.clone());
         Self::new(&data)
     }
@@ -145,8 +145,8 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
         DArrayIndexBuilder::<OVER_ONE>::new(data).build()
     }
 
-    /// Creates a new index from a raw [`BitVector`].
-    pub fn from_raw(bv: &BitVector) -> Self {
+    /// Creates a new index from a raw [`RawBitVector`].
+    pub fn from_raw(bv: &RawBitVector) -> Self {
         let data = BitVectorData::from(bv.clone());
         Self::new(&data)
     }
@@ -169,9 +169,9 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
+    /// use jerky::bit_vectors::{RawBitVector, darray::inner::DArrayIndex};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// let da = DArrayIndex::<true>::from_raw(&bv);
     /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
     /// assert_eq!(da.select(&data, 0), Some(0));
@@ -183,9 +183,9 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// `DArrayIndex::<false>::from_raw(&bv)`.
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
+    /// use jerky::bit_vectors::{RawBitVector, darray::inner::DArrayIndex};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// let da = DArrayIndex::<false>::from_raw(&bv);
     /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
     /// assert_eq!(da.select(&data, 0), Some(1));
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros_index() {
-        let bv = BitVector::from_bit(false, 3);
+        let bv = RawBitVector::from_bit(false, 3);
         let da = DArrayIndex::<true>::from_raw(&bv);
         let data = BitVectorData::from(bv);
         assert_eq!(da.select(&data, 0), None);
@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_all_ones_index() {
-        let bv = BitVector::from_bit(true, 3);
+        let bv = RawBitVector::from_bit(true, 3);
         let da = DArrayIndex::<false>::from_raw(&bv);
         let data = BitVectorData::from(bv);
         assert_eq!(da.select(&data, 0), None);
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_zero_copy_from_to_bytes() {
-        let bv = BitVector::from_bits([true, false, true, false, true]);
+        let bv = RawBitVector::from_bits([true, false, true, false, true]);
         let idx = DArrayIndex::<true>::from_raw(&bv);
         let bytes = idx.to_bytes();
         let other = DArrayIndex::from_bytes(bytes).unwrap();
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_builder_roundtrip() {
-        let bv = BitVector::from_bits([true, false, true, true, false, false]);
+        let bv = RawBitVector::from_bits([true, false, true, true, false, false]);
         let builder = DArrayIndexBuilder::<true>::from_raw(&bv);
         let idx = builder.clone().build();
         let bytes = builder.build().to_bytes();

@@ -3,7 +3,7 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
-use jerky::bit_vectors::{prelude::*, BitVector};
+use jerky::bit_vectors::{prelude::*, RawBitVector};
 use jerky::int_vectors::CompactVector;
 
 use criterion::{
@@ -24,7 +24,7 @@ const PROTEINS_PSEF_STR: &str = include_str!("../data/texts/proteins.1MiB.txt");
 // In effective alphabet
 fn load_text(s: &str) -> CompactVector {
     let mut text = s.as_bytes().to_vec();
-    let mut alphabet = BitVector::from_bit(false, 256);
+    let mut alphabet = RawBitVector::from_bit(false, 256);
     text.iter()
         .for_each(|&c| alphabet.set_bit(usize::from(c), true).unwrap());
     for i in 0..text.len() {

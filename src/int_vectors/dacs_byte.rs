@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::{self, BitVector, Rank, Rank9Sel};
+use crate::bit_vectors::{self, Rank, Rank9Sel, RawBitVector};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 
@@ -96,7 +96,7 @@ impl DacsByte {
         }
 
         let mut data = vec![vec![]; num_levels];
-        let mut flags = vec![BitVector::default(); num_levels - 1];
+        let mut flags = vec![RawBitVector::default(); num_levels - 1];
 
         for x in vals {
             let mut x = x.to_usize().unwrap();

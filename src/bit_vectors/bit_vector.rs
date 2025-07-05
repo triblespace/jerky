@@ -16,9 +16,9 @@ pub const WORD_LEN: usize = std::mem::size_of::<usize>() * 8;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::bit_vectors::BitVector;
+/// use jerky::bit_vectors::RawBitVector;
 ///
-/// let mut bv = BitVector::new();
+/// let mut bv = RawBitVector::new();
 /// bv.push_bit(true);
 /// bv.push_bit(false);
 ///
@@ -35,20 +35,20 @@ pub const WORD_LEN: usize = std::mem::size_of::<usize>() * 8;
 ///
 /// This is a yet another Rust port of [succinct::bit_vector](https://github.com/ot/succinct/blob/master/bit_vector.hpp).
 #[derive(Default, Clone, PartialEq, Eq)]
-pub struct BitVector {
+pub struct RawBitVector {
     words: Vec<usize>,
     len: usize,
 }
 
-impl BitVector {
+impl RawBitVector {
     /// Creates a new empty vector.
     ///
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::new();
+    /// let bv = RawBitVector::new();
     /// assert_eq!(bv.len(), 0);
     /// ```
     pub fn new() -> Self {
@@ -64,9 +64,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::with_capacity(40);
+    /// let bv = RawBitVector::with_capacity(40);
     /// assert_eq!(bv.len(), 0);
     /// assert_eq!(bv.capacity(), 64);
     /// ```
@@ -88,9 +88,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bit(false, 5);
+    /// let bv = RawBitVector::from_bit(false, 5);
     /// assert_eq!(bv.len(), 5);
     /// assert_eq!(bv.get_bit(0), Some(false));
     /// ```
@@ -114,9 +114,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([false, true, false]);
+    /// let bv = RawBitVector::from_bits([false, true, false]);
     /// assert_eq!(bv.len(), 3);
     /// assert_eq!(bv.get_bit(1), Some(true));
     /// ```
@@ -138,9 +138,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, false, false]);
+    /// let bv = RawBitVector::from_bits([true, false, false]);
     /// assert_eq!(bv.get_bit(0), Some(true));
     /// assert_eq!(bv.get_bit(1), Some(false));
     /// assert_eq!(bv.get_bit(2), Some(false));
@@ -170,9 +170,9 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let mut bv = BitVector::from_bits([false, true, false]);
+    /// let mut bv = RawBitVector::from_bits([false, true, false]);
     /// bv.set_bit(1, false)?;
     /// assert_eq!(bv.get_bit(1), Some(false));
     /// # Ok(())
@@ -202,9 +202,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let mut bv = BitVector::new();
+    /// let mut bv = RawBitVector::new();
     /// bv.push_bit(true);
     /// bv.push_bit(false);
     /// assert_eq!(bv.len(), 2);
@@ -234,9 +234,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, false, true, false]);
+    /// let bv = RawBitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.get_bits(1, 2), Some(0b10));
     /// assert_eq!(bv.get_bits(2, 3), None);
     /// ```
@@ -288,9 +288,9 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let mut bv = BitVector::from_bit(false, 4);
+    /// let mut bv = RawBitVector::from_bit(false, 4);
     /// bv.set_bits(1, 0b11, 2)?;
     /// assert_eq!(bv.get_bits(0, 4), Some(0b0110));
     /// # Ok(())
@@ -358,9 +358,9 @@ impl BitVector {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let mut bv = BitVector::new();
+    /// let mut bv = RawBitVector::new();
     /// bv.push_bits(0b11, 2)?;
     /// bv.push_bits(0b101, 3)?;
     /// assert_eq!(bv.get_bits(0, 5), Some(0b10111));
@@ -415,9 +415,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([false, true, false, true]);
+    /// let bv = RawBitVector::from_bits([false, true, false, true]);
     /// assert_eq!(bv.predecessor1(3), Some(3));
     /// assert_eq!(bv.predecessor1(2), Some(1));
     /// assert_eq!(bv.predecessor1(1), Some(1));
@@ -455,9 +455,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, false, true, false]);
+    /// let bv = RawBitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.predecessor0(3), Some(3));
     /// assert_eq!(bv.predecessor0(2), Some(1));
     /// assert_eq!(bv.predecessor0(1), Some(1));
@@ -495,9 +495,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, false, true, false]);
+    /// let bv = RawBitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.successor1(0), Some(0));
     /// assert_eq!(bv.successor1(1), Some(2));
     /// assert_eq!(bv.successor1(2), Some(2));
@@ -536,9 +536,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([false, true, false, true]);
+    /// let bv = RawBitVector::from_bits([false, true, false, true]);
     /// assert_eq!(bv.successor0(0), Some(0));
     /// assert_eq!(bv.successor0(1), Some(2));
     /// assert_eq!(bv.successor0(2), Some(2));
@@ -568,9 +568,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([false, true, false]);
+    /// let bv = RawBitVector::from_bits([false, true, false]);
     /// let mut it = bv.iter();
     /// assert_eq!(it.next(), Some(false));
     /// assert_eq!(it.next(), Some(true));
@@ -590,9 +590,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, true, false, true]);
+    /// let bv = RawBitVector::from_bits([true, true, false, true]);
     /// let mut it = bv.unary_iter(1);
     /// assert_eq!(it.next(), Some(1));
     /// assert_eq!(it.next(), Some(3));
@@ -612,9 +612,9 @@ impl BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::BitVector;
+    /// use jerky::bit_vectors::RawBitVector;
     ///
-    /// let bv = BitVector::from_bits([true, false, true, false]);
+    /// let bv = RawBitVector::from_bits([true, false, true, false]);
     /// assert_eq!(bv.get_word64(1), Some(0b10));
     /// assert_eq!(bv.get_bits(1, 64), None);  // out of bounds
     /// ```
@@ -668,7 +668,7 @@ impl BitVector {
     }
 }
 
-impl Build for BitVector {
+impl Build for RawBitVector {
     /// Creates a new vector from input bit stream `bits`.
     ///
     /// # Arguments
@@ -695,7 +695,7 @@ impl Build for BitVector {
     }
 }
 
-impl NumBits for BitVector {
+impl NumBits for RawBitVector {
     /// Returns the number of bits stored (just wrapping [`Self::len()`]).
     fn num_bits(&self) -> usize {
         self.len()
@@ -711,7 +711,7 @@ impl NumBits for BitVector {
     }
 }
 
-impl Access for BitVector {
+impl Access for RawBitVector {
     /// Returns the `pos`-th bit, or [`None`] if out of bounds.
     ///
     /// # Arguments
@@ -721,9 +721,9 @@ impl Access for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, Access};
+    /// use jerky::bit_vectors::{RawBitVector, Access};
     ///
-    /// let bv = BitVector::from_bits([true, false, false]);
+    /// let bv = RawBitVector::from_bits([true, false, false]);
     /// assert_eq!(bv.access(0), Some(true));
     /// assert_eq!(bv.access(1), Some(false));
     /// assert_eq!(bv.access(2), Some(false));
@@ -739,7 +739,7 @@ impl Access for BitVector {
     }
 }
 
-impl Rank for BitVector {
+impl Rank for RawBitVector {
     /// Returns the number of ones from the 0-th bit to the `pos-1`-th bit, or
     /// [`None`] if `self.len() < pos`.
     ///
@@ -750,9 +750,9 @@ impl Rank for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, Rank};
+    /// use jerky::bit_vectors::{RawBitVector, Rank};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.rank1(1), Some(1));
     /// assert_eq!(bv.rank1(2), Some(1));
     /// assert_eq!(bv.rank1(3), Some(1));
@@ -784,9 +784,9 @@ impl Rank for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, Rank};
+    /// use jerky::bit_vectors::{RawBitVector, Rank};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.rank0(1), Some(0));
     /// assert_eq!(bv.rank0(2), Some(1));
     /// assert_eq!(bv.rank0(3), Some(2));
@@ -798,7 +798,7 @@ impl Rank for BitVector {
     }
 }
 
-impl Select for BitVector {
+impl Select for RawBitVector {
     /// Searches the position of the `k`-th bit set, or
     /// [`None`] if `k` is no less than the number of ones.
     ///
@@ -809,9 +809,9 @@ impl Select for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, Select};
+    /// use jerky::bit_vectors::{RawBitVector, Select};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.select1(0), Some(0));
     /// assert_eq!(bv.select1(1), Some(3));
     /// assert_eq!(bv.select1(2), None);
@@ -845,9 +845,9 @@ impl Select for BitVector {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{BitVector, Select};
+    /// use jerky::bit_vectors::{RawBitVector, Select};
     ///
-    /// let bv = BitVector::from_bits([true, false, false, true]);
+    /// let bv = RawBitVector::from_bits([true, false, false, true]);
     /// assert_eq!(bv.select0(0), Some(1));
     /// assert_eq!(bv.select0(1), Some(2));
     /// assert_eq!(bv.select0(2), None);
@@ -874,15 +874,15 @@ impl Select for BitVector {
     }
 }
 
-/// Iterator for enumerating bits, created by [`BitVector::iter()`].
+/// Iterator for enumerating bits, created by [`RawBitVector::iter()`].
 pub struct Iter<'a> {
-    bv: &'a BitVector,
+    bv: &'a RawBitVector,
     pos: usize,
 }
 
 impl<'a> Iter<'a> {
     /// Creates a new iterator.
-    pub const fn new(bv: &'a BitVector) -> Self {
+    pub const fn new(bv: &'a RawBitVector) -> Self {
         Self { bv, pos: 0 }
     }
 }
@@ -907,7 +907,7 @@ impl Iterator for Iter<'_> {
     }
 }
 
-impl std::iter::Extend<bool> for BitVector {
+impl std::iter::Extend<bool> for RawBitVector {
     fn extend<I>(&mut self, bits: I)
     where
         I: IntoIterator<Item = bool>,
@@ -916,20 +916,20 @@ impl std::iter::Extend<bool> for BitVector {
     }
 }
 
-impl std::fmt::Debug for BitVector {
+impl std::fmt::Debug for RawBitVector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut bits = vec![0u8; self.len()];
         for (i, b) in bits.iter_mut().enumerate() {
             *b = self.access(i).unwrap() as u8;
         }
-        f.debug_struct("BitVector")
+        f.debug_struct("RawBitVector")
             .field("bits", &bits)
             .field("len", &self.len)
             .finish()
     }
 }
 
-impl BitVector {
+impl RawBitVector {
     /// Returns the number of bytes required for serializing this bit vector
     /// in the former copy-based format.
     pub fn size_in_bytes(&self) -> usize {
@@ -943,7 +943,7 @@ mod tests {
 
     #[test]
     fn test_set_bit_oob() {
-        let mut bv = BitVector::from_bit(false, 3);
+        let mut bv = RawBitVector::from_bit(false, 3);
         let e = bv.set_bit(3, true);
         assert_eq!(
             e.err().map(|x| x.to_string()),
@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn test_set_bits_over_word() {
-        let mut bv = BitVector::from_bit(false, 100);
+        let mut bv = RawBitVector::from_bit(false, 100);
         let e = bv.set_bits(0, 0b0, 65);
         assert_eq!(
             e.err().map(|x| x.to_string()),
@@ -963,7 +963,7 @@ mod tests {
 
     #[test]
     fn test_set_bits_oob() {
-        let mut bv = BitVector::from_bit(false, 3);
+        let mut bv = RawBitVector::from_bit(false, 3);
         let e = bv.set_bits(2, 0b11, 2);
         assert_eq!(
             e.err().map(|x| x.to_string()),
@@ -973,21 +973,21 @@ mod tests {
 
     #[test]
     fn test_set_bits_truncation() {
-        let mut bv = BitVector::from_bit(false, 3);
+        let mut bv = RawBitVector::from_bit(false, 3);
         bv.set_bits(0, 0b111, 2).unwrap();
-        assert_eq!(bv, BitVector::from_bits([true, true, false]));
+        assert_eq!(bv, RawBitVector::from_bits([true, true, false]));
     }
 
     #[test]
     fn test_set_bits_accross_word() {
-        let mut bv = BitVector::from_bit(false, 100);
+        let mut bv = RawBitVector::from_bit(false, 100);
         bv.set_bits(62, 0b11111, 5).unwrap();
         assert_eq!(bv.get_bits(61, 7).unwrap(), 0b0111110);
     }
 
     #[test]
     fn test_push_bits_over_word() {
-        let mut bv = BitVector::new();
+        let mut bv = RawBitVector::new();
         let e = bv.push_bits(0b0, 65);
         assert_eq!(
             e.err().map(|x| x.to_string()),
@@ -997,28 +997,28 @@ mod tests {
 
     #[test]
     fn test_push_bits_truncation() {
-        let mut bv = BitVector::new();
+        let mut bv = RawBitVector::new();
         bv.push_bits(0b111, 2).unwrap();
-        assert_eq!(bv, BitVector::from_bits([true, true]));
+        assert_eq!(bv, RawBitVector::from_bits([true, true]));
     }
 
     #[test]
     fn test_push_bits_accross_word() {
-        let mut bv = BitVector::from_bit(false, 62);
+        let mut bv = RawBitVector::from_bit(false, 62);
         bv.push_bits(0b011111, 6).unwrap();
         assert_eq!(bv.get_bits(61, 7).unwrap(), 0b0111110);
     }
 
     #[test]
     fn test_get_word64_oob() {
-        let bv = BitVector::from_bit(false, 3);
+        let bv = RawBitVector::from_bit(false, 3);
         assert_eq!(bv.get_word64(3), None);
     }
 
     #[test]
     fn test_get_word64_overflow() {
         // Test a case that can see the next block (but not exist).
-        let bv = BitVector::from_bit(true, 64);
+        let bv = RawBitVector::from_bit(true, 64);
         assert_eq!(bv.get_word64(60), Some(0b1111));
     }
 }

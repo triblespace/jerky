@@ -8,7 +8,7 @@ use anyhow::Result;
 use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vectors::BitVector;
+use crate::bit_vectors::RawBitVector;
 use inner::{DArrayIndex, DArrayIndexBuilder};
 
 /// Constant-time select data structure over integer sets with the dense array technique.
@@ -54,7 +54,7 @@ use inner::{DArrayIndex, DArrayIndexBuilder};
 ///    In ALENEX, 2007.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct DArray {
-    bv: BitVector,
+    bv: RawBitVector,
     s1: DArrayIndex<true>,
     s0: Option<DArrayIndex<false>>,
     r9: Option<Rank9SelIndex>,
@@ -70,7 +70,7 @@ impl DArray {
     where
         I: IntoIterator<Item = bool>,
     {
-        let bv = BitVector::from_bits(bits);
+        let bv = RawBitVector::from_bits(bits);
         let s1 = DArrayIndexBuilder::<true>::from_raw(&bv).build();
         Self {
             bv,
@@ -107,7 +107,7 @@ impl DArray {
     }
 
     /// Returns the reference of the internal bit vector.
-    pub const fn bit_vector(&self) -> &BitVector {
+    pub const fn bit_vector(&self) -> &RawBitVector {
         &self.bv
     }
 
