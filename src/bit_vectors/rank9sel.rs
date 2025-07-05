@@ -5,6 +5,7 @@ pub mod inner;
 
 use anyhow::Result;
 
+use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::BitVector;
 use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
@@ -63,7 +64,7 @@ pub struct Rank9Sel {
 impl Rank9Sel {
     /// Creates a new vector from input bit vector `bv`.
     pub fn new(bv: BitVector) -> Self {
-        let rs = Rank9SelIndex::new(&bv);
+        let rs = Rank9SelIndex::from_raw(&bv);
         Self { bv, rs }
     }
 
@@ -124,7 +125,7 @@ impl Build for Rank9Sel {
         Self: Sized,
     {
         let bv = BitVector::from_bits(bits);
-        let mut builder = Rank9SelIndexBuilder::new(&bv);
+        let mut builder = Rank9SelIndexBuilder::from_raw(&bv);
         if with_select1 {
             builder = builder.select1_hints();
         }
@@ -192,7 +193,8 @@ impl Rank for Rank9Sel {
     /// assert_eq!(bv.rank1(5), None);
     /// ```
     fn rank1(&self, pos: usize) -> Option<usize> {
-        unsafe { self.rs.rank1(&self.bv, pos) }
+        let data = BitVectorData::from(self.bv.clone());
+        self.rs.rank1(&data, pos)
     }
 
     /// Returns the number of zeros from the 0-th bit to the `pos-1`-th bit, or
@@ -216,7 +218,8 @@ impl Rank for Rank9Sel {
     /// assert_eq!(bv.rank0(5), None);
     /// ```
     fn rank0(&self, pos: usize) -> Option<usize> {
-        unsafe { self.rs.rank0(&self.bv, pos) }
+        let data = BitVectorData::from(self.bv.clone());
+        self.rs.rank0(&data, pos)
     }
 }
 
@@ -243,7 +246,8 @@ impl Select for Rank9Sel {
     /// # }
     /// ```
     fn select1(&self, k: usize) -> Option<usize> {
-        unsafe { self.rs.select1(&self.bv, k) }
+        let data = BitVectorData::from(self.bv.clone());
+        self.rs.select1(&data, k)
     }
 
     /// Searches the position of the `k`-th bit unset, or
@@ -268,7 +272,8 @@ impl Select for Rank9Sel {
     /// # }
     /// ```
     fn select0(&self, k: usize) -> Option<usize> {
-        unsafe { self.rs.select0(&self.bv, k) }
+        let data = BitVectorData::from(self.bv.clone());
+        self.rs.select0(&data, k)
     }
 }
 

@@ -5,8 +5,9 @@ use anybytes::{Bytes, View};
 
 use anyhow::Result;
 
+use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::BitVector;
-use crate::bit_vectors::NumBits;
+use crate::bit_vectors::{Access, NumBits};
 use crate::broadword;
 
 const BLOCK_LEN: usize = 1024;
@@ -31,6 +32,14 @@ pub struct DArrayIndexBuilder<const OVER_ONE: bool> {
     num_positions: usize,
 }
 
+impl<const OVER_ONE: bool> crate::bit_vectors::data::IndexBuilder for DArrayIndexBuilder<OVER_ONE> {
+    type Built = DArrayIndex<OVER_ONE>;
+
+    fn build(data: &BitVectorData) -> Self::Built {
+        DArrayIndexBuilder::<OVER_ONE>::new(data).build()
+    }
+}
+
 impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
     fn default() -> Self {
         DArrayIndexBuilder::<OVER_ONE>::default().build()
@@ -38,8 +47,8 @@ impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
 }
 
 impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
-    /// Creates a builder from the given bit vector.
-    pub fn new(bv: &BitVector) -> Self {
+    /// Creates a builder from the given bit vector data.
+    pub fn new(data: &BitVectorData) -> Self {
         let mut cur_block_positions = vec![];
         let mut block_inventory = vec![];
         let mut subblock_inventory = vec![];
@@ -52,14 +61,14 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
             DArrayIndex::<OVER_ONE>::get_word_over_zero
         };
 
-        for word_idx in 0..bv.num_words() {
+        for word_idx in 0..data.num_words() {
             let mut cur_pos = word_idx * 64;
-            let mut cur_word = w(bv, word_idx);
+            let mut cur_word = w(data, word_idx);
 
             while let Some(l) = broadword::lsb(cur_word) {
                 cur_pos += l;
                 cur_word >>= l;
-                if cur_pos >= bv.num_bits() {
+                if cur_pos >= data.len() {
                     break;
                 }
 
@@ -100,6 +109,12 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         }
     }
 
+    /// Creates a builder from a raw [`BitVector`].
+    pub fn from_raw(bv: &BitVector) -> Self {
+        let data = BitVectorData::from(bv.clone());
+        Self::new(&data)
+    }
+
     /// Freezes and returns [`DArrayIndex`].
     pub fn build(self) -> DArrayIndex<OVER_ONE> {
         let block_inventory = Bytes::from_source(self.block_inventory)
@@ -126,8 +141,14 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// # Arguments
     ///
     /// - `bv`: Input bit vector.
-    pub fn new(bv: &BitVector) -> Self {
-        DArrayIndexBuilder::<OVER_ONE>::new(bv).build()
+    pub fn new(data: &BitVectorData) -> Self {
+        DArrayIndexBuilder::<OVER_ONE>::new(data).build()
+    }
+
+    /// Creates a new index from a raw [`BitVector`].
+    pub fn from_raw(bv: &BitVector) -> Self {
+        let data = BitVectorData::from(bv.clone());
+        Self::new(&data)
     }
 
     /// Searches the `k`-th iteger.
@@ -151,32 +172,28 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::<true>::new(&bv);
-    ///
-    /// unsafe {
-    ///     assert_eq!(da.select(&bv, 0), Some(0));
-    ///     assert_eq!(da.select(&bv, 1), Some(3));
-    ///     assert_eq!(da.select(&bv, 2), None);
-    /// }
+    /// let da = DArrayIndex::<true>::from_raw(&bv);
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(da.select(&data, 0), Some(0));
+    /// assert_eq!(da.select(&data, 1), Some(3));
+    /// assert_eq!(da.select(&data, 2), None);
     /// ```
     ///
     /// You can perform selections over unset bits by specifying
-    /// `DArrayIndex::<false>::new(&bv)`.
+    /// `DArrayIndex::<false>::from_raw(&bv)`.
     ///
     /// ```
     /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::<false>::new(&bv);
-    ///
-    /// unsafe {
-    ///     assert_eq!(da.select(&bv, 0), Some(1));
-    ///     assert_eq!(da.select(&bv, 1), Some(2));
-    ///     assert_eq!(da.select(&bv, 2), None);
-    /// }
+    /// let da = DArrayIndex::<false>::from_raw(&bv);
+    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// assert_eq!(da.select(&data, 0), Some(1));
+    /// assert_eq!(da.select(&data, 1), Some(2));
+    /// assert_eq!(da.select(&data, 2), None);
     /// ```
     #[inline(always)]
-    pub unsafe fn select(&self, bv: &BitVector, k: usize) -> Option<usize> {
+    pub fn select(&self, data: &BitVectorData, k: usize) -> Option<usize> {
         if self.num_ones() <= k {
             return None;
         }
@@ -204,7 +221,7 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
 
             let mut word_idx = start_pos / 64;
             let word_shift = start_pos % 64;
-            let mut word = w(bv, word_idx) & (usize::MAX << word_shift);
+            let mut word = w(data, word_idx) & (usize::MAX << word_shift);
 
             loop {
                 let popcnt = broadword::popcount(word);
@@ -213,7 +230,7 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
                 }
                 reminder -= popcnt;
                 word_idx += 1;
-                word = w(bv, word_idx);
+                word = w(data, word_idx);
             }
 
             64 * word_idx + broadword::select_in_word(word, reminder).unwrap()
@@ -309,12 +326,12 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
         cur_block_positions.clear();
     }
 
-    fn get_word_over_one(bv: &BitVector, word_idx: usize) -> usize {
-        bv.words()[word_idx]
+    fn get_word_over_one(data: &BitVectorData, word_idx: usize) -> usize {
+        data.words()[word_idx]
     }
 
-    fn get_word_over_zero(bv: &BitVector, word_idx: usize) -> usize {
-        !bv.words()[word_idx]
+    fn get_word_over_zero(data: &BitVectorData, word_idx: usize) -> usize {
+        !data.words()[word_idx]
     }
 }
 
@@ -332,6 +349,59 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     }
 }
 
+impl<const OVER_ONE: bool> crate::bit_vectors::data::BitVectorIndex for DArrayIndex<OVER_ONE> {
+    fn num_ones(&self, _data: &BitVectorData) -> usize {
+        self.num_ones()
+    }
+
+    fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
+        // DArrayIndex alone does not support rank; fall back to scanning.
+        let mut cnt = 0;
+        for i in 0..pos {
+            if data.access(i).unwrap() == OVER_ONE {
+                cnt += 1;
+            }
+        }
+        Some(cnt)
+    }
+
+    fn select1(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        if OVER_ONE {
+            self.select(data, k)
+        } else {
+            // select1 on complement requires scanning
+            let mut cnt = 0;
+            for i in 0..data.len() {
+                if data.access(i).unwrap() {
+                    if cnt == k {
+                        return Some(i);
+                    }
+                    cnt += 1;
+                }
+            }
+            None
+        }
+    }
+
+    fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        if OVER_ONE {
+            // complement selection
+            let mut cnt = 0;
+            for i in 0..data.len() {
+                if !data.access(i).unwrap() {
+                    if cnt == k {
+                        return Some(i);
+                    }
+                    cnt += 1;
+                }
+            }
+            None
+        } else {
+            self.select(data, k)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,25 +409,23 @@ mod tests {
     #[test]
     fn test_all_zeros_index() {
         let bv = BitVector::from_bit(false, 3);
-        let da = DArrayIndex::<true>::new(&bv);
-        unsafe {
-            assert_eq!(da.select(&bv, 0), None);
-        }
+        let da = DArrayIndex::<true>::from_raw(&bv);
+        let data = BitVectorData::from(bv);
+        assert_eq!(da.select(&data, 0), None);
     }
 
     #[test]
     fn test_all_ones_index() {
         let bv = BitVector::from_bit(true, 3);
-        let da = DArrayIndex::<false>::new(&bv);
-        unsafe {
-            assert_eq!(da.select(&bv, 0), None);
-        }
+        let da = DArrayIndex::<false>::from_raw(&bv);
+        let data = BitVectorData::from(bv);
+        assert_eq!(da.select(&data, 0), None);
     }
 
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let bv = BitVector::from_bits([true, false, true, false, true]);
-        let idx = DArrayIndex::<true>::new(&bv);
+        let idx = DArrayIndex::<true>::from_raw(&bv);
         let bytes = idx.to_bytes();
         let other = DArrayIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
@@ -366,7 +434,7 @@ mod tests {
     #[test]
     fn test_builder_roundtrip() {
         let bv = BitVector::from_bits([true, false, true, true, false, false]);
-        let builder = DArrayIndexBuilder::<true>::new(&bv);
+        let builder = DArrayIndexBuilder::<true>::from_raw(&bv);
         let idx = builder.clone().build();
         let bytes = builder.build().to_bytes();
         let from = DArrayIndex::from_bytes(bytes).unwrap();

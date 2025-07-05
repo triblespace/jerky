@@ -5,6 +5,7 @@ pub mod inner;
 
 use anyhow::Result;
 
+use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use crate::bit_vectors::BitVector;
@@ -70,7 +71,7 @@ impl DArray {
         I: IntoIterator<Item = bool>,
     {
         let bv = BitVector::from_bits(bits);
-        let s1 = DArrayIndexBuilder::<true>::new(&bv).build();
+        let s1 = DArrayIndexBuilder::<true>::from_raw(&bv).build();
         Self {
             bv,
             s1,
@@ -82,14 +83,14 @@ impl DArray {
     /// Builds an index to enable rank queries.
     #[must_use]
     pub fn enable_rank(mut self) -> Self {
-        self.r9 = Some(Rank9SelIndex::new(&self.bv));
+        self.r9 = Some(Rank9SelIndex::from_raw(&self.bv));
         self
     }
 
     /// Builds an index to enable select0.
     #[must_use]
     pub fn enable_select0(mut self) -> Self {
-        self.s0 = Some(DArrayIndexBuilder::<false>::new(&self.bv).build());
+        self.s0 = Some(DArrayIndexBuilder::<false>::from_raw(&self.bv).build());
         self
     }
 
@@ -231,7 +232,8 @@ impl Rank for DArray {
     /// ```
     fn rank1(&self, pos: usize) -> Option<usize> {
         let r9 = self.r9.as_ref().expect("enable_rank() must be set up.");
-        unsafe { r9.rank1(&self.bv, pos) }
+        let data = BitVectorData::from(self.bv.clone());
+        r9.rank1(&data, pos)
     }
 
     /// Returns the number of zeros from the 0-th bit to the `pos-1`-th bit, or
@@ -260,7 +262,8 @@ impl Rank for DArray {
     /// ```
     fn rank0(&self, pos: usize) -> Option<usize> {
         let r9 = self.r9.as_ref().expect("enable_rank() must be set up.");
-        unsafe { r9.rank0(&self.bv, pos) }
+        let data = BitVectorData::from(self.bv.clone());
+        r9.rank0(&data, pos)
     }
 }
 
@@ -284,7 +287,8 @@ impl Select for DArray {
     /// assert_eq!(da.select1(2), None);
     /// ```
     fn select1(&self, k: usize) -> Option<usize> {
-        unsafe { self.s1.select(&self.bv, k) }
+        let data = BitVectorData::from(self.bv.clone());
+        self.s1.select(&data, k)
     }
 
     /// Searches the position of the `k`-th bit unset, or
@@ -311,7 +315,8 @@ impl Select for DArray {
     /// ```
     fn select0(&self, k: usize) -> Option<usize> {
         let s0 = self.s0.as_ref().expect("enable_select0() must be set up.");
-        unsafe { s0.select(&self.bv, k) }
+        let data = BitVectorData::from(self.bv.clone());
+        s0.select(&data, k)
     }
 }
 
