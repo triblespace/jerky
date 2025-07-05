@@ -1,41 +1,97 @@
 //! Raw storage types and generic wrapper for bit vectors.
+//!
+//! The [`BitVectorBuilder`] allows collecting bits and freezing them into
+//! [`BitVector`] backed by zero-copy [`BitVectorData`]. Data can also be
+//! reconstructed directly from [`anybytes::Bytes`] obtained via an mmap
+//! wrapper like `Bytes::from_source`.
 
 use crate::bit_vectors::bit_vector::BitVector as RawBitVector;
 use crate::bit_vectors::bit_vector::WORD_LEN;
 use crate::bit_vectors::{Access, NumBits, Rank, Select};
+use anybytes::{Bytes, View};
+use anyhow::Result;
+
+/// Builder that collects raw bits into a zero-copy [`BitVector`].
+#[derive(Debug, Default, Clone)]
+pub struct BitVectorBuilder {
+    words: Vec<usize>,
+    len: usize,
+}
+
+impl BitVectorBuilder {
+    /// Creates an empty builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Pushes a single bit.
+    pub fn push_bit(&mut self, bit: bool) {
+        let pos_in_word = self.len % WORD_LEN;
+        if pos_in_word == 0 {
+            self.words.push(bit as usize);
+        } else {
+            let cur = self.words.last_mut().unwrap();
+            *cur |= (bit as usize) << pos_in_word;
+        }
+        self.len += 1;
+    }
+
+    /// Extends the builder from an iterator of bits.
+    pub fn extend_bits<I: IntoIterator<Item = bool>>(&mut self, bits: I) {
+        bits.into_iter().for_each(|b| self.push_bit(b));
+    }
+
+    fn into_data(self) -> BitVectorData {
+        let words = Bytes::from_source(self.words).view::<[usize]>().unwrap();
+        BitVectorData {
+            words,
+            len: self.len,
+        }
+    }
+
+    /// Finalizes the builder into a [`BitVector`].
+    pub fn freeze<B: IndexBuilder>(self) -> BitVector<B::Built> {
+        let data = self.into_data();
+        let index = B::build(&data);
+        BitVector::new(data, index)
+    }
+
+    /// Serializes the builder contents into a [`Bytes`] buffer.
+    pub fn into_bytes(self) -> (usize, Bytes) {
+        (self.len, Bytes::from_source(self.words))
+    }
+}
 
 /// Immutable bit vector data without auxiliary indexes.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BitVectorData {
     /// Underlying machine words storing bit data.
-    pub words: Vec<usize>,
+    pub words: View<[usize]>,
     /// Number of valid bits in `words`.
     pub len: usize,
+}
+
+impl Default for BitVectorData {
+    fn default() -> Self {
+        Self {
+            words: Bytes::empty().view::<[usize]>().unwrap(),
+            len: 0,
+        }
+    }
 }
 
 impl BitVectorData {
     /// Creates bit vector data from a bit iterator.
     pub fn from_bits<I: IntoIterator<Item = bool>>(bits: I) -> Self {
-        let mut words = Vec::new();
-        let mut len = 0usize;
-        let mut cur = 0usize;
-        let mut shift = 0usize;
-        for b in bits {
-            if shift == usize::BITS as usize {
-                words.push(cur);
-                cur = 0;
-                shift = 0;
-            }
-            if b {
-                cur |= 1usize << shift;
-            }
-            shift += 1;
-            len += 1;
-        }
-        if shift != 0 {
-            words.push(cur);
-        }
-        Self { words, len }
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits);
+        builder.into_data()
+    }
+
+    /// Reconstructs the data from zero-copy [`Bytes`].
+    pub fn from_bytes(len: usize, bytes: Bytes) -> Result<Self> {
+        let words = bytes.view::<[usize]>().map_err(|e| anyhow::anyhow!(e))?;
+        Ok(Self { words, len })
     }
 
     /// Returns the number of bits stored.
@@ -45,7 +101,7 @@ impl BitVectorData {
 
     /// Returns the raw word slice.
     pub fn words(&self) -> &[usize] {
-        &self.words
+        self.words.as_ref()
     }
 
     /// Returns the number of words stored.
@@ -57,12 +113,20 @@ impl BitVectorData {
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of::<usize>() * (self.words.len() + 2)
     }
+
+    /// Serializes the data into a [`Bytes`] buffer.
+    pub fn to_bytes(&self) -> (usize, Bytes) {
+        (self.len, self.words.clone().bytes())
+    }
 }
 
 impl From<RawBitVector> for BitVectorData {
     fn from(bv: RawBitVector) -> Self {
+        let words = Bytes::from_source(bv.words().to_vec())
+            .view::<[usize]>()
+            .unwrap();
         Self {
-            words: bv.words().to_vec(),
+            words,
             len: bv.len(),
         }
     }
@@ -109,6 +173,15 @@ pub trait BitVectorIndex {
 
     /// Select query for zeros.
     fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize>;
+}
+
+/// Helper trait for constructing indexes from [`BitVectorData`].
+pub trait IndexBuilder {
+    /// Output index type constructed by this builder.
+    type Built: BitVectorIndex;
+
+    /// Builds an index from the given data.
+    fn build(data: &BitVectorData) -> Self::Built;
 }
 
 /// Placeholder index that performs linear scans over the data.
@@ -178,6 +251,14 @@ impl BitVectorIndex for NoIndex {
         } else {
             None
         }
+    }
+}
+
+impl IndexBuilder for NoIndex {
+    type Built = NoIndex;
+
+    fn build(_: &BitVectorData) -> Self::Built {
+        NoIndex
     }
 }
 
@@ -253,5 +334,26 @@ mod tests {
         assert_eq!(bv.rank1(4), Some(2));
         assert_eq!(bv.select1(1), Some(3));
         assert_eq!(bv.select0(0), Some(1));
+    }
+
+    #[test]
+    fn builder_freeze() {
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits([true, false, true, false]);
+        let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
+        assert_eq!(bv.len(), 4);
+        assert_eq!(bv.access(2), Some(true));
+    }
+
+    #[test]
+    fn from_bytes_roundtrip() {
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits([true, false, true, true, false]);
+        let expected: BitVector<NoIndex> = builder.clone().freeze::<NoIndex>();
+        let (len, bytes) = builder.into_bytes();
+
+        let data = BitVectorData::from_bytes(len, bytes).unwrap();
+        let other: BitVector<NoIndex> = data.into();
+        assert_eq!(expected, other);
     }
 }
