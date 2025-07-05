@@ -4,6 +4,6 @@
 //!
 //! ```
 //! # #![allow(unused_imports)]
-//! use sucds::int_vectors::prelude::*;
+//! use jerky::int_vectors::prelude::*;
 //! ```
 pub use crate::int_vectors::{Access, Build, NumVals};

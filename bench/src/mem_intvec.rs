@@ -35,13 +35,13 @@ fn show_memories(title: &str, vals: &[u32]) {
     show_data_stats(vals);
 
     let bytes = {
-        let idx = sucds::int_vectors::CompactVector::from_slice(vals).unwrap();
+        let idx = jerky::int_vectors::CompactVector::from_slice(vals).unwrap();
         idx.size_in_bytes()
     };
     print_memory("CompactVector", bytes, vals.len());
 
     let bytes = {
-        let idx = sucds::int_vectors::DacsByte::from_slice(vals).unwrap();
+        let idx = jerky::int_vectors::DacsByte::from_slice(vals).unwrap();
         idx.size_in_bytes()
     };
     print_memory("DacsByte", bytes, vals.len());

@@ -1,6 +1,6 @@
 //! # Succinct data structures in Rust
 //!
-//! Sucds is a collection of [succinct data structures](https://en.wikipedia.org/wiki/Succinct_data_structure),
+//! Jerky is a collection of [succinct data structures](https://en.wikipedia.org/wiki/Succinct_data_structure),
 //! powerful tools to store a variety of data structures in compressed space and
 //! quickly perform operations on the compressed data.
 //!
@@ -11,18 +11,18 @@
 //! To handle them in a single crate, we set up several design policies:
 //!
 //! - **Maintain interface consistency:**
-//!   Sucds will adhere to a unified interface, facilitating the integration and replacement of data structures.
+//!   Jerky will adhere to a unified interface, facilitating the integration and replacement of data structures.
 //!
 //! - **Preserve identity:**
 //!   Rather than offering every possible succinct data structure,
-//!   Sucds will focus on providing only those that hold a competitive advantage over others.
+//!   Jerky will focus on providing only those that hold a competitive advantage over others.
 //!
 //! - **Ensure safety:**
-//!   To avoid potential risks, Sucds will refrain from using unsafe instructions
+//!   To avoid potential risks, Jerky will refrain from using unsafe instructions
 //!   typically reserved for extremely low-level programming.
 //!
 //! - **Remain Rust-centric:**
-//!   Sucds will consistently utilize Pure Rust in its implementation.
+//!   Jerky will consistently utilize Pure Rust in its implementation.
 //!
 //! ## Data structures
 //!

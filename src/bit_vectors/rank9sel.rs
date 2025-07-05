@@ -26,7 +26,7 @@ use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::{Rank9Sel, Access, Rank, Select, Build};
+/// use jerky::bit_vectors::{Rank9Sel, Access, Rank, Select, Build};
 ///
 /// let bv = Rank9Sel::build_from_bits(
 ///     [true, false, false, true],
@@ -156,7 +156,7 @@ impl Access for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Access};
+    /// use jerky::bit_vectors::{Rank9Sel, Access};
     ///
     /// let bv = Rank9Sel::from_bits([true, false, false]);
     ///
@@ -181,7 +181,7 @@ impl Rank for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Rank};
+    /// use jerky::bit_vectors::{Rank9Sel, Rank};
     ///
     /// let bv = Rank9Sel::from_bits([true, false, false, true]);
     ///
@@ -205,7 +205,7 @@ impl Rank for Rank9Sel {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{Rank9Sel, Rank};
+    /// use jerky::bit_vectors::{Rank9Sel, Rank};
     ///
     /// let bv = Rank9Sel::from_bits([true, false, false, true]);
     ///
@@ -232,7 +232,7 @@ impl Select for Rank9Sel {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::{Rank9Sel, Select, Build};
+    /// use jerky::bit_vectors::{Rank9Sel, Select, Build};
     ///
     /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, true, false)?;
     ///
@@ -257,7 +257,7 @@ impl Select for Rank9Sel {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::{Rank9Sel, Select, Build};
+    /// use jerky::bit_vectors::{Rank9Sel, Select, Build};
     ///
     /// let bv = Rank9Sel::build_from_bits([true, false, false, true], false, false, true)?;
     ///

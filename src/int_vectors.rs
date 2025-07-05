@@ -56,7 +56,7 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use sucds::int_vectors::{DacsByte, prelude::*};
+//! use jerky::int_vectors::{DacsByte, prelude::*};
 //!
 //! let seq = DacsByte::build_from_slice(&[5, 0, 100000, 334])?;
 //!

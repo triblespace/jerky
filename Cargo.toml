@@ -1,13 +1,13 @@
 [package]
-name = "sucds"
+name = "jerky"
 version = "0.8.1"
 authors = ["Shunsuke Kanda (kampersanda) <shnsk.knd@gmail.com>"]
-description = "Succinct data structures in Rust"
+description = "Succinct on-disk data structures in Rust"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-documentation = "https://docs.rs/sucds"
-repository = "https://github.com/triblespace/sucds"
-homepage = "https://github.com/triblespace/sucds"
+documentation = "https://docs.rs/jerky"
+repository = "https://github.com/triblespace/jerky"
+homepage = "https://github.com/triblespace/jerky"
 keywords = ["succinct", "compression"]
 categories = ["data-structures"]
 edition = "2018"

@@ -22,9 +22,9 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::bit_vectors::Rank9Sel;
-/// use sucds::char_sequences::WaveletMatrix;
-/// use sucds::int_vectors::CompactVector;
+/// use jerky::bit_vectors::Rank9Sel;
+/// use jerky::char_sequences::WaveletMatrix;
+/// use jerky::int_vectors::CompactVector;
 ///
 /// let text = "banana";
 /// let len = text.chars().count();
@@ -140,9 +140,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -190,9 +190,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -225,9 +225,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -281,9 +281,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -342,9 +342,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -410,9 +410,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("banana".chars().map(|c| c as usize))?;
@@ -516,9 +516,9 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::bit_vectors::Rank9Sel;
-    /// use sucds::char_sequences::WaveletMatrix;
-    /// use sucds::int_vectors::CompactVector;
+    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use jerky::int_vectors::CompactVector;
     ///
     /// let mut seq = CompactVector::new(8)?;
     /// seq.extend("ban".chars().map(|c| c as usize))?;

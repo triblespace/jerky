@@ -3,8 +3,8 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
-use sucds::bit_vectors::{prelude::*, BitVector};
-use sucds::int_vectors::CompactVector;
+use jerky::bit_vectors::{prelude::*, BitVector};
+use jerky::int_vectors::CompactVector;
 
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
@@ -71,7 +71,7 @@ fn criterion_chrseq_access_proteins(c: &mut Criterion) {
     perform_chrseq_access(&mut group, &text);
 }
 
-fn run_queries<B>(idx: &sucds::char_sequences::WaveletMatrix<B>, queries: &[usize])
+fn run_queries<B>(idx: &jerky::char_sequences::WaveletMatrix<B>, queries: &[usize])
 where
     B: Access + Build + NumBits + Rank + Select,
 {
@@ -87,16 +87,16 @@ where
 fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVector) {
     let queries = gen_random_ints(NUM_QUERIES, 0, text.len(), SEED_QUERIES);
 
-    group.bench_function("sucds/WaveletMatrix<Rank9Sel>", |b| {
+    group.bench_function("jerky/WaveletMatrix<Rank9Sel>", |b| {
         let idx =
-            sucds::char_sequences::WaveletMatrix::<sucds::bit_vectors::Rank9Sel>::new(text.clone())
+            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::Rank9Sel>::new(text.clone())
                 .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("sucds/WaveletMatrix<DArray>", |b| {
+    group.bench_function("jerky/WaveletMatrix<DArray>", |b| {
         let idx =
-            sucds::char_sequences::WaveletMatrix::<sucds::bit_vectors::DArray>::new(text.clone())
+            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::DArray>::new(text.clone())
                 .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });

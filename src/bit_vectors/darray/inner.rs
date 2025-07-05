@@ -148,7 +148,7 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// # Examples
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, darray::inner::DArrayIndex};
+    /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let da = DArrayIndex::<true>::new(&bv);
@@ -164,7 +164,7 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// `DArrayIndex::<false>::new(&bv)`.
     ///
     /// ```
-    /// use sucds::bit_vectors::{BitVector, darray::inner::DArrayIndex};
+    /// use jerky::bit_vectors::{BitVector, darray::inner::DArrayIndex};
     ///
     /// let bv = BitVector::from_bits([true, false, false, true]);
     /// let da = DArrayIndex::<false>::new(&bv);

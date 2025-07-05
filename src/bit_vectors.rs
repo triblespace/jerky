@@ -54,7 +54,7 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use sucds::bit_vectors::{Rank9Sel, prelude::*};
+//! use jerky::bit_vectors::{Rank9Sel, prelude::*};
 //!
 //! let bv = Rank9Sel::build_from_bits(
 //!     [true, false, false, true],

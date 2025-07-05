@@ -7,7 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
-use sucds::bit_vectors::Rank;
+use jerky::bit_vectors::Rank;
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
@@ -38,13 +38,13 @@ fn run_queries<R: Rank>(idx: &R, queries: &[usize]) {
 }
 
 fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
-    group.bench_function("sucds/BitVector", |b| {
-        let idx = sucds::bit_vectors::BitVector::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/BitVector", |b| {
+        let idx = jerky::bit_vectors::BitVector::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("sucds/Rank9Sel", |b| {
-        let idx = sucds::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/Rank9Sel", |b| {
+        let idx = jerky::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned());
         b.iter(|| run_queries(&idx, &queries));
     });
 }

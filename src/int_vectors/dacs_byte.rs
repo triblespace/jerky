@@ -30,7 +30,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use sucds::int_vectors::{DacsByte, Access};
+/// use jerky::int_vectors::{DacsByte, Access};
 ///
 /// let seq = DacsByte::from_slice(&[5, 0, 100000, 334])?;
 ///
@@ -124,7 +124,7 @@ impl DacsByte {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::DacsByte;
+    /// use jerky::int_vectors::DacsByte;
     ///
     /// let seq = DacsByte::from_slice(&[5, 0, 100000, 334])?;
     /// let mut it = seq.iter();
@@ -208,7 +208,7 @@ impl Access for DacsByte {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use sucds::int_vectors::{DacsByte, Access};
+    /// use jerky::int_vectors::{DacsByte, Access};
     ///
     /// let seq = DacsByte::from_slice(&[5, 999, 334])?;
     ///
