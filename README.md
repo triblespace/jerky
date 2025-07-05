@@ -22,6 +22,14 @@ The document can be compiled with the following command:
 RUSTDOCFLAGS="--html-in-header katex.html" cargo doc --no-deps
 ```
 
+## Zero-copy bit vectors
+
+`BitVectorBuilder` can build a bit vector whose underlying `BitVectorData`
+is backed by `anybytes::View`. The data can be serialized with
+`BitVectorData::to_bytes` and reconstructed using `BitVectorData::from_bytes`,
+allowing zero-copy loading from an mmap or any other source by passing the
+byte region to `Bytes::from_source`.
+
 ## Licensing
 
 Licensed under either of
