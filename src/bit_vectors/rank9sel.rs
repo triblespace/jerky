@@ -5,14 +5,14 @@ pub mod inner;
 
 use anyhow::Result;
 
-use crate::bit_vectors::data::BitVectorData;
+use crate::bit_vectors::data::BitVectorBuilder;
 use crate::bit_vectors::prelude::*;
-use crate::bit_vectors::RawBitVector;
+use crate::bit_vectors::{BitVector, NoIndex, RawBitVector};
 use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 
 /// Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
 ///
-/// This builds rank/select indices on [`RawBitVector`] taking
+/// This builds rank/select indices on [`BitVector`] taking
 ///
 /// - 25% overhead of space for the rank index, and
 /// - 3% overhead of space for the select index (together with the rank's overhead).
@@ -57,15 +57,13 @@ use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 ///  - S. Vigna, "Broadword implementation of rank/select queries," In WEA, 2008.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9Sel {
-    bv: RawBitVector,
-    rs: Rank9SelIndex,
+    bits: BitVector<Rank9SelIndex>,
 }
 
 impl Rank9Sel {
     /// Creates a new vector from input bit vector `bv`.
     pub fn new(bv: RawBitVector) -> Self {
-        let rs = Rank9SelIndex::from_raw(&bv);
-        Self { bv, rs }
+        Self::from_bits(bv.iter())
     }
 
     /// Creates a new vector from input bit stream `bits`.
@@ -77,27 +75,30 @@ impl Rank9Sel {
     where
         I: IntoIterator<Item = bool>,
     {
-        Self::new(RawBitVector::from_bits(bits))
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits);
+        let bits: BitVector<Rank9SelIndex> = builder.freeze::<Rank9SelIndexBuilder>();
+        Self { bits }
     }
 
     /// Returns the reference of the internal bit vector.
-    pub const fn bit_vector(&self) -> &RawBitVector {
-        &self.bv
+    pub const fn bit_vector(&self) -> &BitVector<Rank9SelIndex> {
+        &self.bits
     }
 
     /// Returns the reference of the internal rank/select index.
     pub const fn rs_index(&self) -> &Rank9SelIndex {
-        &self.rs
+        &self.bits.index
     }
 
     /// Returns the number of bits stored.
     pub const fn len(&self) -> usize {
-        self.bv.len()
+        self.bits.len()
     }
 
     /// Checks if the vector is empty.
     pub const fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.bits.len() == 0
     }
 }
 
@@ -124,8 +125,9 @@ impl Build for Rank9Sel {
         I: IntoIterator<Item = bool>,
         Self: Sized,
     {
-        let bv = RawBitVector::from_bits(bits);
-        let data = BitVectorData::from(bv.clone());
+        let mut bvb = BitVectorBuilder::new();
+        bvb.extend_bits(bits);
+        let BitVector { data, .. }: BitVector<NoIndex> = bvb.freeze::<NoIndex>();
         let mut builder = Rank9SelIndexBuilder::from_data(&data);
         if with_select1 {
             builder = builder.select1_hints();
@@ -134,7 +136,8 @@ impl Build for Rank9Sel {
             builder = builder.select0_hints();
         }
         let rs = builder.build();
-        Ok(Self { bv, rs })
+        let bits = BitVector::new(data, rs);
+        Ok(Self { bits })
     }
 }
 
@@ -142,13 +145,13 @@ impl NumBits for Rank9Sel {
     /// Returns the number of bits stored (just wrapping [`Self::len()`]).
     #[inline(always)]
     fn num_bits(&self) -> usize {
-        self.len()
+        self.bits.len()
     }
 
     /// Returns the number of bits set.
     #[inline(always)]
     fn num_ones(&self) -> usize {
-        self.rs.num_ones()
+        self.bits.num_ones()
     }
 }
 
@@ -168,7 +171,7 @@ impl Access for Rank9Sel {
     /// assert_eq!(bv.access(3), None);
     /// ```
     fn access(&self, pos: usize) -> Option<bool> {
-        self.bv.access(pos)
+        self.bits.access(pos)
     }
 }
 
@@ -194,8 +197,7 @@ impl Rank for Rank9Sel {
     /// assert_eq!(bv.rank1(5), None);
     /// ```
     fn rank1(&self, pos: usize) -> Option<usize> {
-        let data = BitVectorData::from(self.bv.clone());
-        self.rs.rank1(&data, pos)
+        self.bits.rank1(pos)
     }
 
     /// Returns the number of zeros from the 0-th bit to the `pos-1`-th bit, or
@@ -219,8 +221,7 @@ impl Rank for Rank9Sel {
     /// assert_eq!(bv.rank0(5), None);
     /// ```
     fn rank0(&self, pos: usize) -> Option<usize> {
-        let data = BitVectorData::from(self.bv.clone());
-        self.rs.rank0(&data, pos)
+        self.bits.rank0(pos)
     }
 }
 
@@ -247,8 +248,7 @@ impl Select for Rank9Sel {
     /// # }
     /// ```
     fn select1(&self, k: usize) -> Option<usize> {
-        let data = BitVectorData::from(self.bv.clone());
-        self.rs.select1(&data, k)
+        self.bits.select1(k)
     }
 
     /// Searches the position of the `k`-th bit unset, or
@@ -273,15 +273,14 @@ impl Select for Rank9Sel {
     /// # }
     /// ```
     fn select0(&self, k: usize) -> Option<usize> {
-        let data = BitVectorData::from(self.bv.clone());
-        self.rs.select0(&data, k)
+        self.bits.select0(k)
     }
 }
 
 impl Rank9Sel {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
-        self.bv.size_in_bytes() + self.rs.size_in_bytes()
+        self.bits.data.size_in_bytes() + self.bits.index.size_in_bytes()
     }
 }
 
