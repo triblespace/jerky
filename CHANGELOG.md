@@ -9,3 +9,4 @@
   mutable variant to `RawBitVector`.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
+- Fixed `scripts/preflight.sh` to install `rustfmt` when `cargo-fmt` is missing.
