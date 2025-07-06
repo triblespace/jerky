@@ -46,6 +46,101 @@ impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
     }
 }
 
+/// Index type that supports both `select1` and `select0` by wrapping
+/// [`DArrayIndex<true>`] and [`DArrayIndex<false>`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DArrayFullIndex {
+    s1: DArrayIndex<true>,
+    s0: DArrayIndex<false>,
+}
+
+/// Builder for [`DArrayFullIndex`].
+#[derive(Default, Debug, Clone)]
+pub struct DArrayFullIndexBuilder {
+    s1: DArrayIndexBuilder<true>,
+    s0: DArrayIndexBuilder<false>,
+}
+
+impl crate::bit_vectors::data::IndexBuilder for DArrayFullIndexBuilder {
+    type Built = DArrayFullIndex;
+
+    fn build(data: &BitVectorData) -> Self::Built {
+        DArrayFullIndexBuilder::new(data).build()
+    }
+}
+
+impl Default for DArrayFullIndex {
+    fn default() -> Self {
+        DArrayFullIndexBuilder::default().build()
+    }
+}
+
+impl DArrayFullIndexBuilder {
+    /// Creates a builder from the given bit vector data.
+    pub fn new(data: &BitVectorData) -> Self {
+        Self {
+            s1: DArrayIndexBuilder::<true>::from_data(data),
+            s0: DArrayIndexBuilder::<false>::from_data(data),
+        }
+    }
+
+    /// Creates a builder from the given [`BitVectorData`].
+    pub fn from_data(data: &BitVectorData) -> Self {
+        Self::new(data)
+    }
+
+    /// Freezes and returns [`DArrayFullIndex`].
+    pub fn build(self) -> DArrayFullIndex {
+        DArrayFullIndex {
+            s1: self.s1.build(),
+            s0: self.s0.build(),
+        }
+    }
+}
+
+impl DArrayFullIndex {
+    /// Creates a new index from a raw [`RawBitVector`].
+    pub fn from_raw(bv: &RawBitVector) -> Self {
+        let data = BitVectorData::from(bv.clone());
+        Self::new(&data)
+    }
+
+    /// Creates a new [`DArrayFullIndex`] from bit vector data.
+    pub fn new(data: &BitVectorData) -> Self {
+        DArrayFullIndexBuilder::new(data).build()
+    }
+
+    /// Returns the number of integers set to one.
+    #[inline(always)]
+    pub fn num_ones(&self) -> usize {
+        self.s1.num_ones()
+    }
+
+    /// Returns the number of bytes required for the old copy-based serialization.
+    pub fn size_in_bytes(&self) -> usize {
+        self.s1.size_in_bytes() + self.s0.size_in_bytes()
+    }
+}
+
+impl crate::bit_vectors::data::BitVectorIndex for DArrayFullIndex {
+    fn num_ones(&self, _data: &BitVectorData) -> usize {
+        self.num_ones()
+    }
+
+    fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
+        // rank is not supported; fall back to scanning via s1
+        crate::bit_vectors::data::BitVectorIndex::rank1(&self.s1, data, pos)
+    }
+
+    fn select1(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        crate::bit_vectors::data::BitVectorIndex::select1(&self.s1, data, k)
+    }
+
+    fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize> {
+        crate::bit_vectors::data::BitVectorIndex::select0(&self.s0, data, k)
+    }
+}
+
 impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
     /// Creates a builder from the given bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
