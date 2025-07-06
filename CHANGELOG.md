@@ -9,3 +9,4 @@
   mutable variant to `RawBitVector`.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
+- Index builders now provide `from_data` constructors operating on `BitVectorData`.
