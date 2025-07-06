@@ -1,6 +1,6 @@
 # Succinct on-disk data structures in Rust
 
-![](https://github.com/triblespace/jerky/actions/workflows/rust.yml/badge.svg)
+![](https://github.com/triblespace/jerky/actions/workflows/preflight.yml/badge.svg)
 [![Documentation](https://docs.rs/jerky/badge.svg)](https://docs.rs/jerky)
 [![Crates.io](https://img.shields.io/crates/v/jerky.svg)](https://crates.io/crates/jerky)
 

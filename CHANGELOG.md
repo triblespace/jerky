@@ -9,3 +9,4 @@
   mutable variant to `RawBitVector`.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
+- Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
