@@ -10,3 +10,4 @@
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
 - Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
+- Fixed `scripts/preflight.sh` to install `rustfmt` when `cargo-fmt` is missing.

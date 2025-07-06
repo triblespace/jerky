@@ -5,8 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Ensure required tools are available
-if ! command -v rustfmt >/dev/null 2>&1; then
-  echo "rustfmt not found. Installing via rustup..."
+if ! command -v cargo-fmt >/dev/null 2>&1; then
+  echo "cargo-fmt not found. Installing via rustup..."
   rustup component add rustfmt
 fi
 
