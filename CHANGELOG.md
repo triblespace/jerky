@@ -7,3 +7,5 @@
 - Rename crate from `succdisk` to `jerky`.
 - Replaced the old `BitVector` with the generic `BitVector<I>` and renamed the
   mutable variant to `RawBitVector`.
+- Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
+  verification workflows.
