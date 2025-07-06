@@ -55,15 +55,9 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         let mut overflow_positions = vec![];
         let mut num_positions = 0;
 
-        let w = if OVER_ONE {
-            DArrayIndex::<OVER_ONE>::get_word_over_one
-        } else {
-            DArrayIndex::<OVER_ONE>::get_word_over_zero
-        };
-
-        for word_idx in 0..data.num_words() {
+        for (word_idx, &word) in data.words().iter().enumerate() {
             let mut cur_pos = word_idx * 64;
-            let mut cur_word = w(data, word_idx);
+            let mut cur_word = if OVER_ONE { word } else { !word };
 
             while let Some(l) = broadword::lsb(cur_word) {
                 cur_pos += l;
@@ -109,10 +103,9 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         }
     }
 
-    /// Creates a builder from a raw [`RawBitVector`].
-    pub fn from_raw(bv: &RawBitVector) -> Self {
-        let data = BitVectorData::from(bv.clone());
-        Self::new(&data)
+    /// Creates a builder from the given [`BitVectorData`].
+    pub fn from_data(data: &BitVectorData) -> Self {
+        Self::new(data)
     }
 
     /// Freezes and returns [`DArrayIndex`].
@@ -434,10 +427,20 @@ mod tests {
     #[test]
     fn test_builder_roundtrip() {
         let bv = RawBitVector::from_bits([true, false, true, true, false, false]);
-        let builder = DArrayIndexBuilder::<true>::from_raw(&bv);
+        let data = BitVectorData::from(bv.clone());
+        let builder = DArrayIndexBuilder::<true>::from_data(&data);
         let idx = builder.clone().build();
         let bytes = builder.build().to_bytes();
         let from = DArrayIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, from);
+    }
+
+    #[test]
+    fn test_builder_from_data() {
+        let bv = RawBitVector::from_bits([true, false, false, true]);
+        let data = BitVectorData::from(bv.clone());
+        let idx_from_data = DArrayIndexBuilder::<true>::from_data(&data).build();
+        let idx_from_raw = DArrayIndex::<true>::from_raw(&bv);
+        assert_eq!(idx_from_data, idx_from_raw);
     }
 }

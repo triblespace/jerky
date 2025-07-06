@@ -125,7 +125,8 @@ impl Build for Rank9Sel {
         Self: Sized,
     {
         let bv = RawBitVector::from_bits(bits);
-        let mut builder = Rank9SelIndexBuilder::from_raw(&bv);
+        let data = BitVectorData::from(bv.clone());
+        let mut builder = Rank9SelIndexBuilder::from_data(&data);
         if with_select1 {
             builder = builder.select1_hints();
         }

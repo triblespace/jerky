@@ -71,7 +71,8 @@ impl DArray {
         I: IntoIterator<Item = bool>,
     {
         let bv = RawBitVector::from_bits(bits);
-        let s1 = DArrayIndexBuilder::<true>::from_raw(&bv).build();
+        let data = BitVectorData::from(bv.clone());
+        let s1 = DArrayIndexBuilder::<true>::from_data(&data).build();
         Self {
             bv,
             s1,
@@ -90,7 +91,8 @@ impl DArray {
     /// Builds an index to enable select0.
     #[must_use]
     pub fn enable_select0(mut self) -> Self {
-        self.s0 = Some(DArrayIndexBuilder::<false>::from_raw(&self.bv).build());
+        let data = BitVectorData::from(self.bv.clone());
+        self.s0 = Some(DArrayIndexBuilder::<false>::from_data(&data).build());
         self
     }
 
