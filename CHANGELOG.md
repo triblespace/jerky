@@ -15,3 +15,5 @@
 - Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
 - Fixed `scripts/preflight.sh` to install `rustfmt` when `cargo-fmt` is missing.
 - `Rank9Sel` now stores a `BitVector<Rank9SelIndex>` built via `BitVectorBuilder`.
+- Added `DArrayFullIndex` wrapping `DArrayIndex<true>` and `DArrayIndex<false>`
+  for unified 0/1 select queries.
