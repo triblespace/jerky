@@ -5,11 +5,10 @@ pub mod inner;
 
 use anyhow::Result;
 
-use crate::bit_vectors::data::BitVectorData;
+use crate::bit_vectors::data::{BitVector, BitVectorBuilder, BitVectorData};
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vectors::RawBitVector;
-use inner::{DArrayIndex, DArrayIndexBuilder};
+use inner::{DArrayFullIndex, DArrayFullIndexBuilder};
 
 /// Constant-time select data structure over integer sets with the dense array technique.
 ///
@@ -52,12 +51,18 @@ use inner::{DArrayIndex, DArrayIndexBuilder};
 ///
 ///  - D. Okanohara, and K. Sadakane, "Practical Entropy-Compressed Rank/Select Dictionary,"
 ///    In ALENEX, 2007.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DArray {
-    bv: RawBitVector,
-    s1: DArrayIndex<true>,
-    s0: Option<DArrayIndex<false>>,
+    bits: BitVector<DArrayFullIndex>,
     r9: Option<Rank9SelIndex>,
+}
+
+impl Default for DArray {
+    fn default() -> Self {
+        let bits: BitVector<DArrayFullIndex> =
+            BitVectorBuilder::new().freeze::<DArrayFullIndexBuilder>();
+        Self { bits, r9: None }
+    }
 }
 
 impl DArray {
@@ -70,29 +75,23 @@ impl DArray {
     where
         I: IntoIterator<Item = bool>,
     {
-        let bv = RawBitVector::from_bits(bits);
-        let data = BitVectorData::from(bv.clone());
-        let s1 = DArrayIndexBuilder::<true>::from_data(&data).build();
-        Self {
-            bv,
-            s1,
-            s0: None,
-            r9: None,
-        }
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits);
+        let bits: BitVector<DArrayFullIndex> = builder.freeze::<DArrayFullIndexBuilder>();
+        Self { bits, r9: None }
     }
 
     /// Builds an index to enable rank queries.
     #[must_use]
     pub fn enable_rank(mut self) -> Self {
-        self.r9 = Some(Rank9SelIndex::from_raw(&self.bv));
+        self.r9 = Some(Rank9SelIndex::new(&self.bits.data));
         self
     }
 
     /// Builds an index to enable select0.
     #[must_use]
     pub fn enable_select0(mut self) -> Self {
-        let data = BitVectorData::from(self.bv.clone());
-        self.s0 = Some(DArrayIndexBuilder::<false>::from_data(&data).build());
+        // select0 index is always built in DArrayFullIndex
         self
     }
 
@@ -105,22 +104,22 @@ impl DArray {
     /// Checks if [`Self::enable_select0()`] is set.
     #[inline(always)]
     pub const fn has_select0(&self) -> bool {
-        self.s0.is_some()
+        true
     }
 
     /// Returns the reference of the internal bit vector.
-    pub const fn bit_vector(&self) -> &RawBitVector {
-        &self.bv
+    pub const fn bit_vector(&self) -> &BitVector<DArrayFullIndex> {
+        &self.bits
     }
 
     /// Returns the reference of the internal select1 index.
-    pub const fn s1_index(&self) -> &DArrayIndex<true> {
-        &self.s1
+    pub const fn s1_index(&self) -> &DArrayFullIndex {
+        &self.bits.index
     }
 
     /// Returns the reference of the internal select0 index.
-    pub const fn s0_index(&self) -> Option<&DArrayIndex<false>> {
-        self.s0.as_ref()
+    pub const fn s0_index(&self) -> &DArrayFullIndex {
+        &self.bits.index
     }
 
     /// Returns the reference of the internal rank index.
@@ -130,12 +129,12 @@ impl DArray {
 
     /// Returns the number of bits stored.
     pub const fn len(&self) -> usize {
-        self.bv.len()
+        self.bits.len()
     }
 
     /// Checks if the vector is empty.
     pub const fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.bits.len() == 0
     }
 }
 
@@ -183,7 +182,7 @@ impl NumBits for DArray {
     /// Returns the number of bits set.
     #[inline(always)]
     fn num_ones(&self) -> usize {
-        self.s1.num_ones()
+        self.bits.num_ones()
     }
 }
 
@@ -203,7 +202,7 @@ impl Access for DArray {
     /// assert_eq!(da.access(3), None);
     /// ```
     fn access(&self, pos: usize) -> Option<bool> {
-        self.bv.access(pos)
+        self.bits.access(pos)
     }
 }
 
@@ -234,8 +233,7 @@ impl Rank for DArray {
     /// ```
     fn rank1(&self, pos: usize) -> Option<usize> {
         let r9 = self.r9.as_ref().expect("enable_rank() must be set up.");
-        let data = BitVectorData::from(self.bv.clone());
-        r9.rank1(&data, pos)
+        r9.rank1(&self.bits.data, pos)
     }
 
     /// Returns the number of zeros from the 0-th bit to the `pos-1`-th bit, or
@@ -264,8 +262,7 @@ impl Rank for DArray {
     /// ```
     fn rank0(&self, pos: usize) -> Option<usize> {
         let r9 = self.r9.as_ref().expect("enable_rank() must be set up.");
-        let data = BitVectorData::from(self.bv.clone());
-        r9.rank0(&data, pos)
+        r9.rank0(&self.bits.data, pos)
     }
 }
 
@@ -289,8 +286,7 @@ impl Select for DArray {
     /// assert_eq!(da.select1(2), None);
     /// ```
     fn select1(&self, k: usize) -> Option<usize> {
-        let data = BitVectorData::from(self.bv.clone());
-        self.s1.select(&data, k)
+        self.bits.select1(k)
     }
 
     /// Searches the position of the `k`-th bit unset, or
@@ -316,21 +312,15 @@ impl Select for DArray {
     /// assert_eq!(da.select0(2), None);
     /// ```
     fn select0(&self, k: usize) -> Option<usize> {
-        let s0 = self.s0.as_ref().expect("enable_select0() must be set up.");
-        let data = BitVectorData::from(self.bv.clone());
-        s0.select(&data, k)
+        self.bits.select0(k)
     }
 }
 
 impl DArray {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
-        self.bv.size_in_bytes()
-            + self.s1.size_in_bytes()
-            + self.s0.as_ref().map_or(std::mem::size_of::<bool>(), |x| {
-                std::mem::size_of::<bool>() + x.size_in_bytes()
-            })
-            + std::mem::size_of::<bool>()
+        self.bits.data.size_in_bytes()
+            + self.bits.index.size_in_bytes()
             + self.r9.as_ref().map_or(0, |r| r.size_in_bytes())
     }
 }
@@ -360,9 +350,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_select1() {
+    fn test_select0_available() {
         let da = DArray::from_bits([false, true, false]);
-        da.select0(0);
+        assert_eq!(da.select0(0), Some(0));
     }
 }
