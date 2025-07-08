@@ -4,9 +4,144 @@
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::RawBitVector;
+use crate::bit_vectors::data::BitVectorBuilder;
+use crate::bit_vectors::{BitVector, NoIndex, RawBitVector};
 use crate::int_vectors::prelude::*;
 use crate::utils;
+
+/// Mutable builder for [`CompactVector`].
+///
+/// This structure collects integers using [`push_int`], [`set_int`], or
+/// [`extend`] and finally [`freeze`]s into an immutable [`CompactVector`].
+///
+/// # Examples
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use jerky::int_vectors::CompactVectorBuilder;
+/// let mut builder = CompactVectorBuilder::new(3)?;
+/// builder.push_int(1)?;
+/// builder.extend([2, 5])?;
+/// let cv = builder.freeze();
+/// assert_eq!(cv.get_int(1), Some(2));
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Default, Clone)]
+pub struct CompactVectorBuilder {
+    chunks: BitVectorBuilder,
+    len: usize,
+    width: usize,
+}
+
+impl CompactVectorBuilder {
+    /// Creates a new empty builder storing integers within `width` bits each.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Number of bits used to store each integer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `width` is outside `1..=64`.
+    pub fn new(width: usize) -> Result<Self> {
+        if !(1..=64).contains(&width) {
+            return Err(anyhow!("width must be in 1..=64, but got {width}."));
+        }
+        Ok(Self {
+            chunks: BitVectorBuilder::new(),
+            len: 0,
+            width,
+        })
+    }
+
+    /// Creates a new builder reserving space for at least `capa` integers.
+    ///
+    /// Currently the reservation is ignored as the builder grows
+    /// automatically.
+    pub fn with_capacity(_capa: usize, width: usize) -> Result<Self> {
+        Self::new(width)
+    }
+
+    /// Pushes integer `val` at the end.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `val` cannot be represented in `self.width()` bits.
+    pub fn push_int(&mut self, val: usize) -> Result<()> {
+        if self.width != 64 && val >> self.width != 0 {
+            return Err(anyhow!(
+                "val must fit in self.width()={} bits, but got {val}.",
+                self.width
+            ));
+        }
+        self.chunks.push_bits(val, self.width)?;
+        self.len += 1;
+        Ok(())
+    }
+
+    /// Sets the `pos`-th integer to `val`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `pos` is out of bounds or if `val` does not fit in
+    /// `self.width()` bits.
+    pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
+        if self.len <= pos {
+            return Err(anyhow!(
+                "pos must be no greater than self.len()={}, but got {pos}.",
+                self.len
+            ));
+        }
+        if self.width != 64 && val >> self.width != 0 {
+            return Err(anyhow!(
+                "val must fit in self.width()={} bits, but got {val}.",
+                self.width
+            ));
+        }
+        for i in 0..self.width {
+            let bit = ((val >> i) & 1) == 1;
+            self.chunks.set_bit(pos * self.width + i, bit)?;
+        }
+        Ok(())
+    }
+
+    /// Appends integers at the end.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any value does not fit in `self.width()` bits.
+    pub fn extend<I>(&mut self, vals: I) -> Result<()>
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        for x in vals {
+            self.push_int(x)?;
+        }
+        Ok(())
+    }
+
+    /// Finalizes the builder into an immutable [`CompactVector`].
+    ///
+    /// The builder can no longer be used after freezing.
+    ///
+    /// # Examples
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::int_vectors::CompactVectorBuilder;
+    /// let cv = CompactVectorBuilder::new(2)?.freeze();
+    /// assert!(cv.is_empty());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn freeze(self) -> CompactVector {
+        let chunks: BitVector<NoIndex> = self.chunks.freeze::<NoIndex>();
+        CompactVector {
+            chunks,
+            len: self.len,
+            width: self.width,
+        }
+    }
+}
 
 /// Updatable compact vector in which each integer is represented in a fixed number of bits.
 ///
@@ -18,31 +153,39 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::int_vectors::CompactVector;
+/// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
 ///
 /// // Can store integers within 3 bits each.
-/// let mut cv = CompactVector::new(3)?;
-///
-/// cv.push_int(7)?;
-/// cv.push_int(2)?;
+/// let mut builder = CompactVectorBuilder::new(3)?;
+/// builder.push_int(7)?;
+/// builder.push_int(2)?;
+/// builder.set_int(0, 5)?;
+/// let cv = builder.freeze();
 ///
 /// assert_eq!(cv.len(), 2);
-/// assert_eq!(cv.get_int(0), Some(7));
-///
-/// cv.set_int(0, 5)?;
 /// assert_eq!(cv.get_int(0), Some(5));
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CompactVector {
-    chunks: RawBitVector,
+    chunks: BitVector<NoIndex>,
     len: usize,
     width: usize,
 }
 
+impl Default for CompactVector {
+    fn default() -> Self {
+        Self {
+            chunks: BitVectorBuilder::new().freeze::<NoIndex>(),
+            len: 0,
+            width: 0,
+        }
+    }
+}
+
 impl CompactVector {
-    /// Creates a new empty vector storing integers within `width` bits each.
+    /// Creates a new empty builder storing integers within `width` bits each.
     ///
     /// # Arguments
     ///
@@ -58,25 +201,18 @@ impl CompactVector {
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::int_vectors::CompactVector;
     ///
-    /// let mut cv = CompactVector::new(3)?;
+    /// let cv = CompactVector::new(3)?.freeze();
     /// assert_eq!(cv.len(), 0);
     /// assert_eq!(cv.width(), 3);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(width: usize) -> Result<Self> {
-        if !(1..=64).contains(&width) {
-            return Err(anyhow!("width must be in 1..=64, but got {width}."));
-        }
-        Ok(Self {
-            chunks: RawBitVector::default(),
-            len: 0,
-            width,
-        })
+    pub fn new(width: usize) -> Result<CompactVectorBuilder> {
+        CompactVectorBuilder::new(width)
     }
 
-    /// Creates a new vector storing an integer in `width` bits,
-    /// where space for storing at least `capa` integers is reserved.
+    /// Creates a new builder storing integers in `width` bits and
+    /// reserving space for at least `capa` integers.
     ///
     /// # Arguments
     ///
@@ -93,25 +229,16 @@ impl CompactVector {
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::int_vectors::CompactVector;
     ///
-    /// let mut cv = CompactVector::with_capacity(10, 3)?;
+    /// let cv = CompactVector::with_capacity(10, 3)?.freeze();
     ///
     /// assert_eq!(cv.len(), 0);
     /// assert_eq!(cv.width(), 3);
-    ///
-    /// // Space for storing 21 integers is reserved due to the data structure.
-    /// assert_eq!(cv.capacity(), 21);
+    /// assert_eq!(cv.capacity(), 0);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_capacity(capa: usize, width: usize) -> Result<Self> {
-        if !(1..=64).contains(&width) {
-            return Err(anyhow!("width must be in 1..=64, but got {width}."));
-        }
-        Ok(Self {
-            chunks: RawBitVector::with_capacity(capa * width),
-            len: 0,
-            width,
-        })
+    pub fn with_capacity(capa: usize, width: usize) -> Result<CompactVectorBuilder> {
+        CompactVectorBuilder::with_capacity(capa, width)
     }
 
     /// Creates a new vector storing an integer in `width` bits,
@@ -152,13 +279,11 @@ impl CompactVector {
                 "val must fit in width={width} bits, but got {val}."
             ));
         }
-        // NOTE(kampersanda): It should be safe.
-        let mut cv = Self::with_capacity(len, width).unwrap();
+        let mut builder = CompactVectorBuilder::with_capacity(len, width)?;
         for _ in 0..len {
-            // NOTE(kampersanda): It should be safe.
-            cv.push_int(val).unwrap();
+            builder.push_int(val)?;
         }
-        Ok(cv)
+        Ok(builder.freeze())
     }
 
     /// Creates a new vector from a slice of integers `vals`.
@@ -200,12 +325,12 @@ impl CompactVector {
                     anyhow!("vals must consist only of values castable into usize.")
                 })?);
         }
-        let mut cv = Self::with_capacity(vals.len(), utils::needed_bits(max_int))?;
+        let mut builder =
+            CompactVectorBuilder::with_capacity(vals.len(), utils::needed_bits(max_int))?;
         for x in vals {
-            // Casting and pushing should be safe.
-            cv.push_int(x.to_usize().unwrap()).unwrap();
+            builder.push_int(x.to_usize().unwrap())?;
         }
-        Ok(cv)
+        Ok(builder.freeze())
     }
 
     /// Returns the `pos`-th integer, or [`None`] if out of bounds.
@@ -236,132 +361,6 @@ impl CompactVector {
     }
 
     /// Sets the `pos`-th integer to `val`.
-    ///
-    /// # Arguments
-    ///
-    ///  - `pos`: Position.
-    ///  - `val`: Integer value set.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if
-    ///
-    /// - `pos` is out of bounds, or
-    /// - `val` cannot be represent in `self.width()` bits.
-    ///
-    /// # Complexity
-    ///
-    /// Constant
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::int_vectors::CompactVector;
-    ///
-    /// let mut cv = CompactVector::from_int(0, 2, 3)?;
-    /// cv.set_int(1, 4)?;
-    /// assert_eq!(cv.get_int(1), Some(4));
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[inline(always)]
-    pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
-        if self.len() <= pos {
-            return Err(anyhow!(
-                "pos must be no greater than self.len()={}, but got {pos}.",
-                self.len()
-            ));
-        }
-        if self.width() != 64 && val >> self.width() != 0 {
-            return Err(anyhow!(
-                "val must fit in self.width()={} bits, but got {val}.",
-                self.width()
-            ));
-        }
-        // NOTE(kampersanda): set_bits should be safe.
-        self.chunks
-            .set_bits(pos * self.width, val, self.width)
-            .unwrap();
-        Ok(())
-    }
-
-    /// Pushes integer `val` at the end.
-    ///
-    /// # Arguments
-    ///
-    ///  - `val`: Integer value pushed.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if `val` cannot be represent in `self.width()` bits.
-    ///
-    /// # Complexity
-    ///
-    /// Constant (Amortized)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::int_vectors::CompactVector;
-    ///
-    /// let mut cv = CompactVector::new(3)?;
-    /// cv.push_int(2)?;
-    /// cv.push_int(1)?;
-    /// assert_eq!(cv.len(), 2);
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[inline(always)]
-    pub fn push_int(&mut self, val: usize) -> Result<()> {
-        if self.width() != 64 && val >> self.width() != 0 {
-            return Err(anyhow!(
-                "val must fit in self.width()={} bits, but got {val}.",
-                self.width()
-            ));
-        }
-        // NOTE(kampersanda): set_bits should be safe.
-        self.chunks.push_bits(val, self.width).unwrap();
-        self.len += 1;
-        Ok(())
-    }
-
-    /// Appends integers at the end.
-    ///
-    /// # Arguments
-    ///
-    ///  - `vals`: Integer stream to be pushed.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if values in `vals` cannot be represent in `self.width()` bits.
-    ///
-    /// # Complexity
-    ///
-    /// Linear
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::int_vectors::CompactVector;
-    ///
-    /// let mut cv = CompactVector::new(3)?;
-    /// cv.extend([2, 1, 3])?;
-    /// assert_eq!(cv.len(), 3);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn extend<I>(&mut self, vals: I) -> Result<()>
-    where
-        I: IntoIterator<Item = usize>,
-    {
-        for x in vals {
-            self.push_int(x)?;
-        }
-        Ok(())
-    }
 
     /// Creates an iterator for enumerating integers.
     ///
@@ -399,7 +398,7 @@ impl CompactVector {
 
     /// Returns the total number of integers it can hold without reallocating.
     pub fn capacity(&self) -> usize {
-        self.chunks.capacity() / self.width()
+        self.len()
     }
 
     /// Gets the number of bits to represent an integer.
@@ -509,7 +508,7 @@ impl std::fmt::Debug for CompactVector {
 impl CompactVector {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
-        self.chunks.size_in_bytes() + std::mem::size_of::<usize>() * 2
+        self.chunks.data.size_in_bytes() + std::mem::size_of::<usize>() * 2
     }
 }
 
@@ -591,8 +590,9 @@ mod tests {
 
     #[test]
     fn test_set_int_oob() {
-        let mut cv = CompactVector::from_int(0, 1, 2).unwrap();
-        let e = cv.set_int(1, 1);
+        let mut builder = CompactVectorBuilder::with_capacity(1, 2).unwrap();
+        builder.push_int(0).unwrap();
+        let e = builder.set_int(1, 1);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("pos must be no greater than self.len()=1, but got 1.".to_string())
@@ -601,8 +601,9 @@ mod tests {
 
     #[test]
     fn test_set_int_unfit() {
-        let mut cv = CompactVector::from_int(0, 1, 2).unwrap();
-        let e = cv.set_int(0, 4);
+        let mut builder = CompactVectorBuilder::with_capacity(1, 2).unwrap();
+        builder.push_int(0).unwrap();
+        let e = builder.set_int(0, 4);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("val must fit in self.width()=2 bits, but got 4.".to_string())
@@ -611,8 +612,8 @@ mod tests {
 
     #[test]
     fn test_push_int_unfit() {
-        let mut cv = CompactVector::new(2).unwrap();
-        let e = cv.push_int(4);
+        let mut builder = CompactVectorBuilder::new(2).unwrap();
+        let e = builder.push_int(4);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("val must fit in self.width()=2 bits, but got 4.".to_string())
@@ -621,8 +622,8 @@ mod tests {
 
     #[test]
     fn test_extend_unfit() {
-        let mut cv = CompactVector::new(2).unwrap();
-        let e = cv.extend([4]);
+        let mut builder = CompactVectorBuilder::new(2).unwrap();
+        let e = builder.extend([4]);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("val must fit in self.width()=2 bits, but got 4.".to_string())
@@ -631,10 +632,11 @@ mod tests {
 
     #[test]
     fn test_64b() {
-        let mut cv = CompactVector::new(64).unwrap();
-        cv.push_int(42).unwrap();
-        assert_eq!(cv.get_int(0), Some(42));
-        cv.set_int(0, 334).unwrap();
+        let mut builder = CompactVectorBuilder::new(64).unwrap();
+        builder.push_int(42).unwrap();
+        assert_eq!(builder.clone().freeze().get_int(0), Some(42));
+        builder.set_int(0, 334).unwrap();
+        let cv = builder.freeze();
         assert_eq!(cv.get_int(0), Some(334));
     }
 

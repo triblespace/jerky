@@ -17,3 +17,6 @@
 - `Rank9Sel` now stores a `BitVector<Rank9SelIndex>` built via `BitVectorBuilder`.
 - Added `DArrayFullIndex` wrapping `DArrayIndex<true>` and `DArrayIndex<false>`
   for unified 0/1 select queries.
+- Introduced `CompactVectorBuilder` mutable APIs `push_int`, `set_int`, and `extend`.
+- Added `freeze()` on `CompactVectorBuilder` yielding an immutable `CompactVector` backed by `BitVector<NoIndex>`.
+- `CompactVector::new` and `with_capacity` now return builders; other constructors build via the builder pattern.
