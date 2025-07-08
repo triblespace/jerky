@@ -7,7 +7,6 @@ use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorData;
 use crate::bit_vectors::NumBits;
-use crate::bit_vectors::RawBitVector;
 use crate::broadword;
 
 const BLOCK_LEN: usize = 8;
@@ -183,12 +182,6 @@ impl Rank9SelIndex {
         Rank9SelIndexBuilder::new(data).build()
     }
 
-    /// Creates a new index from a raw [`RawBitVector`].
-    pub fn from_raw(bv: &RawBitVector) -> Self {
-        let data = BitVectorData::from(bv.clone());
-        Self::new(&data)
-    }
-
     /// Gets the number of bits set.
     #[inline(always)]
     pub fn num_ones(&self) -> usize {
@@ -246,11 +239,11 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{RawBitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
+    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
     ///
-    /// let bv = RawBitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::from_raw(&bv);
-    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// let data = BitVectorData::from_bits([true, false, false, true]);
+    /// let idx = Rank9SelIndexBuilder::from_data(&data).build();
+
     /// assert_eq!(idx.rank1(&data, 1), Some(1));
     /// assert_eq!(idx.rank1(&data, 2), Some(1));
     /// assert_eq!(idx.rank1(&data, 3), Some(1));
@@ -291,12 +284,9 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{RawBitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
-    ///
-    /// let bv = RawBitVector::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndex::from_raw(&bv);
-    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
-    /// assert_eq!(idx.rank0(&data, 1), Some(0));
+    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
+    /// let data = BitVectorData::from_bits([true, false, false, true]);
+    /// let idx = Rank9SelIndexBuilder::from_data(&data).build();
     /// assert_eq!(idx.rank0(&data, 2), Some(1));
     /// assert_eq!(idx.rank0(&data, 3), Some(2));
     /// assert_eq!(idx.rank0(&data, 4), Some(2));
@@ -325,11 +315,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{RawBitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
-    ///
-    /// let bv = RawBitVector::from_bits([true, false, false, true]);
-    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
+    /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndexBuilder::from_data(&data).select1_hints().build();
+    ///
     /// assert_eq!(idx.select1(&data, 0), Some(0));
     /// assert_eq!(idx.select1(&data, 1), Some(3));
     /// assert_eq!(idx.select1(&data, 2), None);
@@ -399,10 +388,9 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{RawBitVector, rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}};
-    ///
-    /// let bv = RawBitVector::from_bits([true, false, false, true]);
-    /// let data = jerky::bit_vectors::BitVectorData::from(bv.clone());
+    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder;
+    /// use jerky::bit_vectors::BitVectorData;
+    /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndexBuilder::from_data(&data).select0_hints().build();
     /// assert_eq!(idx.select0(&data, 0), Some(1));
     /// assert_eq!(idx.select0(&data, 1), Some(2));
@@ -572,8 +560,7 @@ mod tests {
 
     #[test]
     fn test_zero_copy_from_to_bytes() {
-        let bv = RawBitVector::from_bits([false, true, true, false, true]);
-        let data = BitVectorData::from(bv.clone());
+        let data = BitVectorData::from_bits([false, true, true, false, true]);
         let idx = Rank9SelIndexBuilder::from_data(&data)
             .select1_hints()
             .select0_hints()
@@ -585,10 +572,9 @@ mod tests {
 
     #[test]
     fn test_builder_from_data() {
-        let bv = RawBitVector::from_bits([true, false, true, false]);
-        let data = BitVectorData::from(bv.clone());
+        let data = BitVectorData::from_bits([true, false, true, false]);
         let idx_from_data = Rank9SelIndexBuilder::from_data(&data).build();
-        let idx_from_raw = Rank9SelIndex::from_raw(&bv);
-        assert_eq!(idx_from_data, idx_from_raw);
+        let idx_from_new = Rank9SelIndexBuilder::from_data(&data).build();
+        assert_eq!(idx_from_data, idx_from_new);
     }
 }

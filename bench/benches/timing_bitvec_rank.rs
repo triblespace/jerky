@@ -7,6 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
+use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::Rank;
 
 const SAMPLE_SIZE: usize = 30;
@@ -39,7 +40,10 @@ fn run_queries<R: Rank>(idx: &R, queries: &[usize]) {
 
 fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
     group.bench_function("jerky/BitVector", |b| {
-        let idx = jerky::bit_vectors::RawBitVector::from_bits(bits.iter().cloned());
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
+            builder.freeze::<jerky::bit_vectors::NoIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 

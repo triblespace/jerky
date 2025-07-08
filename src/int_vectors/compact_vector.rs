@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vectors::data::BitVectorBuilder;
-use crate::bit_vectors::{BitVector, NoIndex, RawBitVector};
+use crate::bit_vectors::{BitVector, NoIndex};
 use crate::int_vectors::prelude::*;
 use crate::utils;
 

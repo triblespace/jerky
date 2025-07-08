@@ -1,4 +1,5 @@
-use jerky::bit_vectors::{Rank, RawBitVector};
+use jerky::bit_vectors::data::BitVectorBuilder;
+use jerky::bit_vectors::Rank;
 use jerky::int_vectors::CompactVector;
 
 const DBLP_PSEF_STR: &str = include_str!("../data/texts/dblp.1MiB.txt");
@@ -14,11 +15,15 @@ fn main() {
 // In effective alphabet
 fn load_text(s: &str) -> CompactVector {
     let mut text = s.as_bytes().to_vec();
-    let mut alphabet = RawBitVector::from_bit(false, 256);
-    text.iter()
-        .for_each(|&c| alphabet.set_bit(usize::from(c), true).unwrap());
+    let mut builder = BitVectorBuilder::new();
+    builder.extend_bits(core::iter::repeat(false).take(256));
+    for &c in &text {
+        builder.set_bit(c as usize, true).unwrap();
+    }
+    let alphabet: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
+        builder.freeze::<jerky::bit_vectors::NoIndex>();
     for i in 0..text.len() {
-        text[i] = alphabet.rank1(usize::from(text[i])).unwrap() as u8;
+        text[i] = alphabet.rank1(text[i] as usize).unwrap() as u8;
     }
     CompactVector::from_slice(&text).unwrap()
 }

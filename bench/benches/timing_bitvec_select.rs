@@ -6,6 +6,7 @@ use rand_chacha::ChaChaRng;
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
+use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::Build;
 use jerky::bit_vectors::Select;
 
@@ -43,7 +44,10 @@ fn run_queries<S: Select>(idx: &S, queries: &[usize]) {
 
 fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
     group.bench_function("jerky/BitVector", |b| {
-        let idx = jerky::bit_vectors::RawBitVector::from_bits(bits.iter().cloned());
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
+            builder.freeze::<jerky::bit_vectors::NoIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 
