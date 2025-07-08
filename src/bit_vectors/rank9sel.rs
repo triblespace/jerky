@@ -7,7 +7,7 @@ use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorBuilder;
 use crate::bit_vectors::prelude::*;
-use crate::bit_vectors::{BitVector, NoIndex, RawBitVector};
+use crate::bit_vectors::{BitVector, NoIndex};
 use inner::{Rank9SelIndex, Rank9SelIndexBuilder};
 
 /// Rank/select data structure over bit vectors with Vigna's rank9 and hinted selection techniques.
@@ -61,11 +61,6 @@ pub struct Rank9Sel {
 }
 
 impl Rank9Sel {
-    /// Creates a new vector from input bit vector `bv`.
-    pub fn new(bv: RawBitVector) -> Self {
-        Self::from_bits(bv.iter())
-    }
-
     /// Creates a new vector from input bit stream `bits`.
     ///
     /// # Arguments

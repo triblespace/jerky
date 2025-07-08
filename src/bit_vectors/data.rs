@@ -5,7 +5,7 @@
 //! reconstructed directly from [`anybytes::Bytes`] obtained via an mmap
 //! wrapper like `Bytes::from_source`.
 
-use crate::bit_vectors::bit_vector::{RawBitVector, WORD_LEN};
+use crate::bit_vectors::bit_vector::WORD_LEN;
 use crate::bit_vectors::{Access, NumBits, Rank, Select};
 use anybytes::{Bytes, View};
 use anyhow::{anyhow, Result};
@@ -188,18 +188,6 @@ impl BitVectorData {
     /// Serializes the data into a [`Bytes`] buffer.
     pub fn to_bytes(&self) -> (usize, Bytes) {
         (self.len, self.words.clone().bytes())
-    }
-}
-
-impl From<RawBitVector> for BitVectorData {
-    fn from(bv: RawBitVector) -> Self {
-        let words = Bytes::from_source(bv.words().to_vec())
-            .view::<[usize]>()
-            .unwrap();
-        Self {
-            words,
-            len: bv.len(),
-        }
     }
 }
 
