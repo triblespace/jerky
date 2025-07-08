@@ -7,7 +7,7 @@ use std::ops::Range;
 use anyhow::{anyhow, Result};
 
 use crate::bit_vectors::{Access, Build, NumBits, Rank, Rank9Sel, RawBitVector, Select};
-use crate::int_vectors::CompactVector;
+use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 
 /// Time- and space-efficient data structure for a sequence of integers,
@@ -24,15 +24,15 @@ use crate::utils;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use jerky::bit_vectors::Rank9Sel;
 /// use jerky::char_sequences::WaveletMatrix;
-/// use jerky::int_vectors::CompactVector;
+/// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
 ///
 /// let text = "banana";
 /// let len = text.chars().count();
 ///
 /// // It accepts an integer representable in 8 bits.
-/// let mut seq = CompactVector::new(8)?;
-/// seq.extend(text.chars().map(|c| c as usize))?;
-/// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+/// let mut builder = CompactVectorBuilder::new(8)?;
+/// builder.extend(text.chars().map(|c| c as usize))?;
+/// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
 ///
 /// assert_eq!(wm.len(), len);
 /// assert_eq!(wm.alph_size(), 'n' as usize + 1);
@@ -79,12 +79,12 @@ where
         let alph_width = utils::needed_bits(alph_size);
 
         let mut zeros = seq;
-        let mut ones = CompactVector::new(alph_width).unwrap();
+        let mut ones = CompactVector::new(alph_width)?.freeze();
         let mut layers = vec![];
 
         for depth in 0..alph_width {
-            let mut next_zeros = CompactVector::new(alph_width).unwrap();
-            let mut next_ones = CompactVector::new(alph_width).unwrap();
+            let mut next_zeros = CompactVectorBuilder::new(alph_width).unwrap();
+            let mut next_ones = CompactVectorBuilder::new(alph_width).unwrap();
             let mut bv = RawBitVector::new();
             Self::filter(
                 &zeros,
@@ -100,8 +100,8 @@ where
                 &mut next_ones,
                 &mut bv,
             );
-            zeros = next_zeros;
-            ones = next_ones;
+            zeros = next_zeros.freeze();
+            ones = next_ones.freeze();
             layers.push(B::build_from_bits(bv.iter(), true, true, true)?);
         }
 
@@ -111,8 +111,8 @@ where
     fn filter(
         seq: &CompactVector,
         shift: usize,
-        next_zeros: &mut CompactVector,
-        next_ones: &mut CompactVector,
+        next_zeros: &mut CompactVectorBuilder,
+        next_ones: &mut CompactVectorBuilder,
         bv: &mut RawBitVector,
     ) {
         for val in seq.iter() {
@@ -142,11 +142,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    /// builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.access(2), Some('n' as usize));
     /// assert_eq!(wm.access(5), Some('a' as usize));
@@ -192,11 +192,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    /// builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank(3, 'a' as usize), Some(1));
     /// assert_eq!(wm.rank(5, 'c' as usize), Some(0));
@@ -227,11 +227,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    /// builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank_range(1..4, 'a' as usize), Some(2));
     /// assert_eq!(wm.rank_range(2..4, 'c' as usize), Some(0));
@@ -283,11 +283,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    ///  builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.select(1, 'a' as usize), Some(3));
     /// assert_eq!(wm.select(0, 'c' as usize), None);
@@ -344,11 +344,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    ///  builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.quantile(1..4, 0), Some('a' as usize)); // The 0th in "ana" should be "a"
     /// assert_eq!(wm.quantile(1..4, 1), Some('a' as usize)); // The 1st in "ana" should be "a"
@@ -412,11 +412,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    ///  builder.extend("banana".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// // Intersections among "ana", "na", and "ba".
     /// assert_eq!(
@@ -518,11 +518,11 @@ where
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::bit_vectors::Rank9Sel;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::CompactVector;
+    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
-    /// let mut seq = CompactVector::new(8)?;
-    /// seq.extend("ban".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(seq)?;
+    /// let mut builder = CompactVectorBuilder::new(8)?;
+    ///  builder.extend("ban".chars().map(|c| c as usize))?;
+    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
     ///
     /// let mut it = wm.iter();
     /// assert_eq!(it.next(), Some('b' as usize));
@@ -615,7 +615,7 @@ mod test {
 
     #[test]
     fn test_empty_seq() {
-        let e = WaveletMatrix::<Rank9Sel>::new(CompactVector::new(1).unwrap());
+        let e = WaveletMatrix::<Rank9Sel>::new(CompactVector::new(1).unwrap().freeze());
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("seq must not be empty.".to_string())
@@ -628,8 +628,9 @@ mod test {
         let text = "tobeornottobethatisthequestion";
         let len = text.chars().count();
 
-        let mut seq = CompactVector::new(8).unwrap();
-        seq.extend(text.chars().map(|c| c as usize)).unwrap();
+        let mut builder = CompactVectorBuilder::new(8).unwrap();
+        builder.extend(text.chars().map(|c| c as usize)).unwrap();
+        let seq = builder.freeze();
         let wm = WaveletMatrix::<Rank9Sel>::new(seq).unwrap();
 
         assert_eq!(wm.len(), len);
