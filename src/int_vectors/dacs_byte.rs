@@ -6,7 +6,9 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::{self, Rank, Rank9Sel, RawBitVector};
+use crate::bit_vectors::data::BitVectorBuilder;
+use crate::bit_vectors::Access as BitAccess;
+use crate::bit_vectors::{self, BitVector, NoIndex, Rank, Rank9Sel};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 
@@ -96,7 +98,7 @@ impl DacsByte {
         }
 
         let mut data = vec![vec![]; num_levels];
-        let mut flags = vec![RawBitVector::default(); num_levels - 1];
+        let mut flags = vec![BitVectorBuilder::new(); num_levels - 1];
 
         for x in vals {
             let mut x = x.to_usize().unwrap();
@@ -114,7 +116,13 @@ impl DacsByte {
             }
         }
 
-        let flags = flags.into_iter().map(Rank9Sel::new).collect();
+        let flags = flags
+            .into_iter()
+            .map(|bvb| {
+                let bits: BitVector<NoIndex> = bvb.freeze::<NoIndex>();
+                Rank9Sel::from_bits((0..bits.len()).map(|i| BitAccess::access(&bits, i).unwrap()))
+            })
+            .collect();
         Ok(Self { data, flags })
     }
 

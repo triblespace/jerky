@@ -20,3 +20,5 @@
 - Introduced `CompactVectorBuilder` mutable APIs `push_int`, `set_int`, and `extend`.
 - Added `freeze()` on `CompactVectorBuilder` yielding an immutable `CompactVector` backed by `BitVector<NoIndex>`.
 - `CompactVector::new` and `with_capacity` now return builders; other constructors build via the builder pattern.
+- Wavelet matrix and DACs builders now use `BitVectorBuilder` for temporary bit
+  vectors, storing only immutable `BitVector` data after construction.
