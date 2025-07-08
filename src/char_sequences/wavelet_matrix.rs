@@ -6,7 +6,8 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::{Access, Build, NumBits, Rank, Rank9Sel, RawBitVector, Select};
+use crate::bit_vectors::data::BitVectorBuilder;
+use crate::bit_vectors::{Access, BitVector, Build, NoIndex, NumBits, Rank, Rank9Sel, Select};
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 
@@ -85,7 +86,7 @@ where
         for depth in 0..alph_width {
             let mut next_zeros = CompactVectorBuilder::new(alph_width).unwrap();
             let mut next_ones = CompactVectorBuilder::new(alph_width).unwrap();
-            let mut bv = RawBitVector::new();
+            let mut bv = BitVectorBuilder::new();
             Self::filter(
                 &zeros,
                 alph_width - depth - 1,
@@ -102,7 +103,13 @@ where
             );
             zeros = next_zeros.freeze();
             ones = next_ones.freeze();
-            layers.push(B::build_from_bits(bv.iter(), true, true, true)?);
+            let bits: BitVector<NoIndex> = bv.freeze::<NoIndex>();
+            layers.push(B::build_from_bits(
+                (0..bits.len()).map(|i| bits.access(i).unwrap()),
+                true,
+                true,
+                true,
+            )?);
         }
 
         Ok(Self { layers, alph_size })
@@ -113,7 +120,7 @@ where
         shift: usize,
         next_zeros: &mut CompactVectorBuilder,
         next_ones: &mut CompactVectorBuilder,
-        bv: &mut RawBitVector,
+        bv: &mut BitVectorBuilder,
     ) {
         for val in seq.iter() {
             let bit = ((val >> shift) & 1) == 1;
