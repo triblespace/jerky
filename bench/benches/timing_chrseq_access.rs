@@ -92,10 +92,11 @@ where
 fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVector) {
     let queries = gen_random_ints(NUM_QUERIES, 0, text.len(), SEED_QUERIES);
 
-    group.bench_function("jerky/WaveletMatrix<Rank9Sel>", |b| {
-        let idx =
-            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::Rank9Sel>::new(text.clone())
-                .unwrap();
+    group.bench_function("jerky/WaveletMatrix<BitVector<Rank9SelIndex>>", |b| {
+        let idx = jerky::char_sequences::WaveletMatrix::<
+            jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex>,
+        >::new(text.clone())
+        .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 

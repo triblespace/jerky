@@ -7,7 +7,8 @@ use std::ops::Range;
 use anyhow::{anyhow, Result};
 
 use crate::bit_vectors::data::BitVectorBuilder;
-use crate::bit_vectors::{Access, BitVector, Build, NoIndex, NumBits, Rank, Rank9Sel, Select};
+use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
+use crate::bit_vectors::{Access, BitVector, Build, NoIndex, NumBits, Rank, Select};
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 
@@ -23,7 +24,7 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::bit_vectors::Rank9Sel;
+/// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
 /// use jerky::char_sequences::WaveletMatrix;
 /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
 ///
@@ -33,7 +34,7 @@ use crate::utils;
 /// // It accepts an integer representable in 8 bits.
 /// let mut builder = CompactVectorBuilder::new(8)?;
 /// builder.extend(text.chars().map(|c| c as usize))?;
-/// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+/// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
 ///
 /// assert_eq!(wm.len(), len);
 /// assert_eq!(wm.alph_size(), 'n' as usize + 1);
@@ -147,13 +148,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.access(2), Some('n' as usize));
     /// assert_eq!(wm.access(5), Some('a' as usize));
@@ -197,13 +198,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank(3, 'a' as usize), Some(1));
     /// assert_eq!(wm.rank(5, 'c' as usize), Some(0));
@@ -232,13 +233,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank_range(1..4, 'a' as usize), Some(2));
     /// assert_eq!(wm.rank_range(2..4, 'c' as usize), Some(0));
@@ -288,13 +289,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.select(1, 'a' as usize), Some(3));
     /// assert_eq!(wm.select(0, 'c' as usize), None);
@@ -349,13 +350,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.quantile(1..4, 0), Some('a' as usize)); // The 0th in "ana" should be "a"
     /// assert_eq!(wm.quantile(1..4, 1), Some('a' as usize)); // The 1st in "ana" should be "a"
@@ -417,13 +418,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// // Intersections among "ana", "na", and "ba".
     /// assert_eq!(
@@ -523,13 +524,13 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::Rank9Sel;
+    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("ban".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9Sel>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
     ///
     /// let mut it = wm.iter();
     /// assert_eq!(it.next(), Some('b' as usize));
@@ -605,11 +606,15 @@ where
     }
 }
 
-impl WaveletMatrix<Rank9Sel> {
+impl WaveletMatrix<BitVector<Rank9SelIndex>> {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of::<usize>()
-            + self.layers.iter().map(|l| l.size_in_bytes()).sum::<usize>()
+            + self
+                .layers
+                .iter()
+                .map(|l| l.data.size_in_bytes() + l.index.size_in_bytes())
+                .sum::<usize>()
             + std::mem::size_of::<usize>()
     }
 }
@@ -618,11 +623,12 @@ impl WaveletMatrix<Rank9Sel> {
 mod test {
     use super::*;
 
-    use crate::bit_vectors::Rank9Sel;
+    use crate::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
 
     #[test]
     fn test_empty_seq() {
-        let e = WaveletMatrix::<Rank9Sel>::new(CompactVector::new(1).unwrap().freeze());
+        let e =
+            WaveletMatrix::<BitVector<Rank9SelIndex>>::new(CompactVector::new(1).unwrap().freeze());
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("seq must not be empty.".to_string())
@@ -638,7 +644,7 @@ mod test {
         let mut builder = CompactVectorBuilder::new(8).unwrap();
         builder.extend(text.chars().map(|c| c as usize)).unwrap();
         let seq = builder.freeze();
-        let wm = WaveletMatrix::<Rank9Sel>::new(seq).unwrap();
+        let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(seq).unwrap();
 
         assert_eq!(wm.len(), len);
         assert_eq!(wm.alph_size(), ('u' as usize) + 1);

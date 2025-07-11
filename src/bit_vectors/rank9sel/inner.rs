@@ -1,4 +1,4 @@
-//! Internal index structure of [`Rank9Sel`](super::Rank9Sel).
+//! Internal index structure for [`BitVector<Rank9SelIndex>`](crate::bit_vectors::BitVector).
 #![cfg(target_pointer_width = "64")]
 
 use anybytes::{Bytes, View};
@@ -13,7 +13,7 @@ const BLOCK_LEN: usize = 8;
 const SELECT_ONES_PER_HINT: usize = 64 * BLOCK_LEN * 2;
 const SELECT_ZEROS_PER_HINT: usize = SELECT_ONES_PER_HINT;
 
-/// The index implementation of [`Rank9Sel`](super::Rank9Sel) separated from the bit vector.
+/// The index implementation separated from the bit vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9SelIndex {
     len: usize,

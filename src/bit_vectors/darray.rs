@@ -5,7 +5,7 @@ pub mod inner;
 
 use anyhow::Result;
 
-use crate::bit_vectors::data::{BitVector, BitVectorBuilder, BitVectorData};
+use crate::bit_vectors::data::{BitVector, BitVectorBuilder};
 use crate::bit_vectors::prelude::*;
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use inner::{DArrayFullIndex, DArrayFullIndexBuilder};
