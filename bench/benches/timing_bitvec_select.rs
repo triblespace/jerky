@@ -59,8 +59,11 @@ fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], qu
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("jerky/DArray", |b| {
-        let idx = jerky::bit_vectors::DArray::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/BitVector<DArrayFullIndex>", |b| {
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
+            builder.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

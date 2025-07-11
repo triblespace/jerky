@@ -40,16 +40,23 @@ fn show_memories(p: f64) {
     print_memory("BitVector<Rank9SelIndex> (with select hints)", bytes);
 
     let bytes = {
-        let idx = jerky::bit_vectors::DArray::from_bits(bits.iter().cloned());
-        idx.size_in_bytes()
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
+            b.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
+        idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
-    print_memory("DArray", bytes);
+    print_memory("BitVector<DArrayFullIndex>", bytes);
 
     let bytes = {
-        let idx = jerky::bit_vectors::DArray::from_bits(bits.iter().cloned()).enable_rank();
-        idx.size_in_bytes()
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
+            b.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
+        let r9 = jerky::bit_vectors::rank9sel::inner::Rank9SelIndex::new(&idx.data);
+        idx.data.size_in_bytes() + idx.index.size_in_bytes() + r9.size_in_bytes()
     };
-    print_memory("DArray (with rank index)", bytes);
+    print_memory("BitVector<DArrayFullIndex> (with rank index)", bytes);
 }
 
 fn print_memory(name: &str, bytes: usize) {

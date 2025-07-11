@@ -24,3 +24,4 @@
   vectors, storing only immutable `BitVector` data after construction.
 - Removed obsolete `RawBitVector` type.
 - Removed the `Rank9Sel` wrapper; use `BitVector<Rank9SelIndex>` directly.
+- Removed the `DArray` wrapper; use `BitVector<darray::inner::DArrayFullIndex>` instead.
