@@ -51,10 +51,11 @@ fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], qu
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("jerky/Rank9Sel", |b| {
-        let idx =
-            jerky::bit_vectors::Rank9Sel::build_from_bits(bits.iter().cloned(), false, true, false)
-                .unwrap();
+    group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
+        let idx = jerky::bit_vectors::BitVector::<
+            jerky::bit_vectors::rank9sel::inner::Rank9SelIndex,
+        >::build_from_bits(bits.iter().cloned(), false, true, false)
+        .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 

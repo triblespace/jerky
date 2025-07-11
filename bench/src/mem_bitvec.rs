@@ -1,3 +1,4 @@
+use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::Build;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
@@ -21,18 +22,22 @@ fn show_memories(p: f64) {
     println!("[p = {p}]");
 
     let bytes = {
-        let idx = jerky::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned());
-        idx.size_in_bytes()
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex> =
+            b.freeze::<jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder>();
+        idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
-    print_memory("Rank9Sel", bytes);
+    print_memory("BitVector<Rank9SelIndex>", bytes);
 
     let bytes = {
-        let idx =
-            jerky::bit_vectors::Rank9Sel::build_from_bits(bits.iter().cloned(), false, true, true)
-                .unwrap();
-        idx.size_in_bytes()
+        let idx = jerky::bit_vectors::BitVector::<
+            jerky::bit_vectors::rank9sel::inner::Rank9SelIndex,
+        >::build_from_bits(bits.iter().cloned(), false, true, true)
+        .unwrap();
+        idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
-    print_memory("Rank9Sel (with select hints)", bytes);
+    print_memory("BitVector<Rank9SelIndex> (with select hints)", bytes);
 
     let bytes = {
         let idx = jerky::bit_vectors::DArray::from_bits(bits.iter().cloned());

@@ -23,3 +23,4 @@
 - Wavelet matrix and DACs builders now use `BitVectorBuilder` for temporary bit
   vectors, storing only immutable `BitVector` data after construction.
 - Removed obsolete `RawBitVector` type.
+- Removed the `Rank9Sel` wrapper; use `BitVector<Rank9SelIndex>` directly.

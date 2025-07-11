@@ -33,20 +33,13 @@ fn show_memories(title: &str, text: &CompactVector) {
     show_data_stats(text);
 
     let bytes = {
-        let idx =
-            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::Rank9Sel>::new(text.clone())
-                .unwrap();
+        let idx = jerky::char_sequences::WaveletMatrix::<
+            jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex>,
+        >::new(text.clone())
+        .unwrap();
         idx.size_in_bytes()
     };
-    print_memory("WaveletMatrix<Rank9Sel>", bytes, text.len());
-
-    let bytes = {
-        let idx =
-            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::DArray>::new(text.clone())
-                .unwrap();
-        idx.size_in_bytes()
-    };
-    print_memory("WaveletMatrix<DArray>", bytes, text.len());
+    print_memory("WaveletMatrix<BitVector<Rank9SelIndex>>", bytes, text.len());
 }
 
 fn show_data_stats(text: &CompactVector) {
