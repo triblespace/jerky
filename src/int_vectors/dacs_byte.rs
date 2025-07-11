@@ -7,8 +7,8 @@ use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vectors::data::BitVectorBuilder;
-use crate::bit_vectors::Access as BitAccess;
-use crate::bit_vectors::{self, BitVector, NoIndex, Rank, Rank9Sel};
+use crate::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use crate::bit_vectors::{self, BitVector, Rank};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 
@@ -54,7 +54,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DacsByte {
     data: Vec<Vec<u8>>,
-    flags: Vec<Rank9Sel>,
+    flags: Vec<BitVector<Rank9SelIndex>>,
 }
 
 impl DacsByte {
@@ -118,10 +118,7 @@ impl DacsByte {
 
         let flags = flags
             .into_iter()
-            .map(|bvb| {
-                let bits: BitVector<NoIndex> = bvb.freeze::<NoIndex>();
-                Rank9Sel::from_bits((0..bits.len()).map(|i| BitAccess::access(&bits, i).unwrap()))
-            })
+            .map(|bvb| bvb.freeze::<Rank9SelIndexBuilder>())
             .collect();
         Ok(Self { data, flags })
     }
@@ -288,7 +285,11 @@ impl DacsByte {
                 .map(|v| std::mem::size_of::<usize>() + v.len())
                 .sum::<usize>()
             + std::mem::size_of::<usize>()
-            + self.flags.iter().map(|f| f.size_in_bytes()).sum::<usize>()
+            + self
+                .flags
+                .iter()
+                .map(|f| f.data.size_in_bytes() + f.index.size_in_bytes())
+                .sum::<usize>()
     }
 }
 
@@ -309,13 +310,13 @@ mod tests {
             ]
         );
 
-        assert_eq!(
-            seq.flags,
-            vec![
-                Rank9Sel::from_bits([true, false, false, true, false]),
-                Rank9Sel::from_bits([false, true])
-            ]
-        );
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits([true, false, false, true, false]);
+        let f0: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits([false, true]);
+        let f1: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
+        assert_eq!(seq.flags, vec![f0, f1]);
 
         assert!(!seq.is_empty());
         assert_eq!(seq.len(), 5);

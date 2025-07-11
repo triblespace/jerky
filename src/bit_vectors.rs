@@ -23,7 +23,7 @@
 //! | Implementations | [Access](Access) | [Rank](Rank) | [Select](Select) | Update | Memory (bits) |
 //! | --- | :-: | :-: | :-: | :-: | :-: |
 //! | [`BitVector`] | $`O(1)`$  | $`O(u)`$ | $`O(u)`$ | $`O(1)`$ | $`u`$ |
-//! | [`Rank9Sel`] | $`O(1)`$ | $`O(1)`$ | $`O(\lg u)`$ | -- | $`u + o(u)`$ |
+//! | [`BitVector<rank9sel::inner::Rank9SelIndex>`] | $`O(1)`$ | $`O(1)`$ | $`O(\lg u)`$ | -- | $`u + o(u)`$ |
 //! | [`DArray`] | $`O(1)`$ | $`O(1)`$ | $`O(1)`$ | -- | $`u + o(u)`$ |
 //!
 //! ## Plain bit vectors without index
@@ -35,15 +35,15 @@
 //!
 //! ## Plain bit vectors with index
 //!
-//! [`Rank9Sel`] and [`DArray`] are index structures for faster queries built on [`BitVector`].
+//! [`BitVector<rank9sel::inner::Rank9SelIndex>`] and [`DArray`] are index structures for faster queries built on [`BitVector`].
 //!
-//! [`Rank9Sel`] is an implementation of Vigna's Rank9 and hinted selection techniques, supporting
+//! [`BitVector<rank9sel::inner::Rank9SelIndex>`] is an implementation of Vigna's Rank9 and hinted selection techniques, supporting
 //! constant-time Rank and logarithmic-time Select queries.
 //!
 //! [`DArray`] is a constant-time Select data structure by Okanohara and Sadakane.
 //! If you need only Select queries on dense sets (i.e., $`n/u \approx 0.5`$), this will be the most candidate.
-//! Rank/Predecessor/Successor queries are optionally enabled using the [`Rank9Sel`] index.
-//! [`DArray`] outperforms [`Rank9Sel`] in complexity, but the practical space overhead of [`DArray`] can be larger.
+//! Rank/Predecessor/Successor queries are optionally enabled using the [`Rank9SelIndex`](rank9sel::inner::Rank9SelIndex) index.
+//! [`DArray`] outperforms [`BitVector<rank9sel::inner::Rank9SelIndex>`] in complexity, but the practical space overhead of [`DArray`] can be larger.
 //!
 //!
 //! # Examples
@@ -54,9 +54,9 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use jerky::bit_vectors::{Rank9Sel, prelude::*};
+//! use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector, prelude::*};
 //!
-//! let bv = Rank9Sel::build_from_bits(
+//! let bv: BitVector<Rank9SelIndex> = BitVector::build_from_bits(
 //!     [true, false, false, true],
 //!     true, // Enables rank1/0
 //!     true, // Enables select1
@@ -84,7 +84,6 @@ pub mod rank9sel;
 
 pub use darray::DArray;
 pub use data::{BitVector, BitVectorData, BitVectorIndex, IndexBuilder, NoIndex};
-pub use rank9sel::Rank9Sel;
 
 use anyhow::Result;
 

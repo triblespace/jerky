@@ -47,8 +47,11 @@ fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], quer
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("jerky/Rank9Sel", |b| {
-        let idx = jerky::bit_vectors::Rank9Sel::from_bits(bits.iter().cloned());
+    group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits.iter().cloned());
+        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex> =
+            builder.freeze::<jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }
