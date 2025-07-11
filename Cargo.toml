@@ -1,7 +1,8 @@
 [package]
 name = "jerky"
 version = "0.8.1"
-authors = ["Shunsuke Kanda (kampersanda) <shnsk.knd@gmail.com>"]
+authors = ["Shunsuke Kanda (kampersanda) <shnsk.knd@gmail.com>",
+           "Jan-Paul Bultmann (somethingelseentirely) <jp@bultmann.eu>"]
 description = "Succinct on-disk data structures in Rust"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
