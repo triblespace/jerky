@@ -100,10 +100,11 @@ fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVec
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("jerky/WaveletMatrix<DArray>", |b| {
-        let idx =
-            jerky::char_sequences::WaveletMatrix::<jerky::bit_vectors::DArray>::new(text.clone())
-                .unwrap();
+    group.bench_function("jerky/WaveletMatrix<BitVector<DArrayFullIndex>>", |b| {
+        let idx = jerky::char_sequences::WaveletMatrix::<
+            jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex>,
+        >::new(text.clone())
+        .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

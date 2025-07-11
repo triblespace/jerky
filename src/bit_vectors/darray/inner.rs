@@ -1,4 +1,4 @@
-//! Internal index structure of [`DArray`](super::DArray).
+//! Internal index structure for the dense array bit-vector technique.
 #![cfg(target_pointer_width = "64")]
 
 use anybytes::{Bytes, View};
@@ -13,7 +13,7 @@ const BLOCK_LEN: usize = 1024;
 const SUBBLOCK_LEN: usize = 32;
 const MAX_IN_BLOCK_DISTANCE: usize = 1 << 16;
 
-/// The index implementation of [`DArray`](super::DArray) separated from the bit vector.
+/// The index implementation separated from the [`BitVector`] data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DArrayIndex<const OVER_ONE: bool> {
     block_inventory: View<[isize]>,
