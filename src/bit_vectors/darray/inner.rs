@@ -22,29 +22,13 @@ pub struct DArrayIndex<const OVER_ONE: bool> {
     num_positions: usize,
 }
 
-impl<const OVER_ONE: bool> crate::bit_vectors::data::IndexBuilder for DArrayIndex<OVER_ONE> {
-    type Built = DArrayIndex<OVER_ONE>;
-
-    fn build(data: &BitVectorData) -> Self::Built {
-        DArrayIndex::new(data)
-    }
-}
-
 /// Builder for [`DArrayIndex`].
 #[derive(Default, Debug, Clone)]
-pub struct DArrayIndexBuilder<const OVER_ONE: bool> {
+struct DArrayIndexBuilder<const OVER_ONE: bool> {
     block_inventory: Vec<isize>,
     subblock_inventory: Vec<u16>,
     overflow_positions: Vec<usize>,
     num_positions: usize,
-}
-
-impl<const OVER_ONE: bool> crate::bit_vectors::data::IndexBuilder for DArrayIndexBuilder<OVER_ONE> {
-    type Built = DArrayIndex<OVER_ONE>;
-
-    fn build(data: &BitVectorData) -> Self::Built {
-        DArrayIndexBuilder::<OVER_ONE>::new(data).build()
-    }
 }
 
 impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
@@ -61,27 +45,11 @@ pub struct DArrayFullIndex {
     s0: DArrayIndex<false>,
 }
 
-impl crate::bit_vectors::data::IndexBuilder for DArrayFullIndex {
-    type Built = DArrayFullIndex;
-
-    fn build(data: &BitVectorData) -> Self::Built {
-        DArrayFullIndex::new(data)
-    }
-}
-
 /// Builder for [`DArrayFullIndex`].
 #[derive(Default, Debug, Clone)]
-pub struct DArrayFullIndexBuilder {
+struct DArrayFullIndexBuilder {
     s1: DArrayIndexBuilder<true>,
     s0: DArrayIndexBuilder<false>,
-}
-
-impl crate::bit_vectors::data::IndexBuilder for DArrayFullIndexBuilder {
-    type Built = DArrayFullIndex;
-
-    fn build(data: &BitVectorData) -> Self::Built {
-        DArrayFullIndexBuilder::new(data).build()
-    }
 }
 
 impl Default for DArrayFullIndex {
@@ -132,6 +100,10 @@ impl DArrayFullIndex {
 }
 
 impl crate::bit_vectors::data::BitVectorIndex for DArrayFullIndex {
+    fn build(data: &BitVectorData) -> Self {
+        DArrayFullIndex::new(data)
+    }
+
     fn num_ones(&self, _data: &BitVectorData) -> usize {
         self.num_ones()
     }
@@ -439,6 +411,9 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
 }
 
 impl<const OVER_ONE: bool> crate::bit_vectors::data::BitVectorIndex for DArrayIndex<OVER_ONE> {
+    fn build(data: &BitVectorData) -> Self {
+        DArrayIndex::new(data)
+    }
     fn num_ones(&self, _data: &BitVectorData) -> usize {
         self.num_ones()
     }
@@ -521,17 +496,16 @@ mod tests {
     #[test]
     fn test_builder_roundtrip() {
         let data = BitVectorData::from_bits([true, false, true, true, false, false]);
-        let builder = DArrayIndexBuilder::<true>::from_data(&data);
-        let idx = builder.clone().build();
-        let bytes = builder.build().to_bytes();
-        let from = DArrayIndex::from_bytes(bytes).unwrap();
+        let idx = DArrayIndex::<true>::new(&data);
+        let bytes = idx.to_bytes();
+        let from = DArrayIndex::<true>::from_bytes(bytes).unwrap();
         assert_eq!(idx, from);
     }
 
     #[test]
     fn test_builder_from_data() {
         let data = BitVectorData::from_bits([true, false, false, true]);
-        let idx_from_data = DArrayIndexBuilder::<true>::from_data(&data).build();
+        let idx_from_data = DArrayIndex::<true>::new(&data);
         let idx_from_new = DArrayIndex::<true>::new(&data);
         assert_eq!(idx_from_data, idx_from_new);
     }

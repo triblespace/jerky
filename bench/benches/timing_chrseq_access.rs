@@ -81,7 +81,7 @@ fn criterion_chrseq_access_proteins(c: &mut Criterion) {
 
 fn run_queries<I>(idx: &WaveletMatrix<I>, queries: &[usize])
 where
-    I: BitVectorIndex + IndexBuilder<Built = I>,
+    I: BitVectorIndex,
 {
     let mut sum = 0;
     for &q in queries {

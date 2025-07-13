@@ -8,7 +8,7 @@ use criterion::{
 };
 
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use jerky::bit_vectors::{BitVector, NoIndex, Rank};
 
 const SAMPLE_SIZE: usize = 30;
@@ -50,7 +50,7 @@ fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], quer
     group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
-        let idx = builder.freeze::<Rank9SelIndexBuilder>();
+        let idx = builder.freeze::<Rank9SelIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

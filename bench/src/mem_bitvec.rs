@@ -1,6 +1,6 @@
-use jerky::bit_vectors::darray::inner::{DArrayFullIndex, DArrayFullIndexBuilder};
+use jerky::bit_vectors::darray::inner::DArrayFullIndex;
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use jerky::bit_vectors::BitVector;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
@@ -26,7 +26,7 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
+        let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
         idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
     print_memory("BitVector<Rank9SelIndex>", bytes);
@@ -42,7 +42,7 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndexBuilder>();
+        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndex>();
         idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
     print_memory("BitVector<DArrayFullIndex>", bytes);
@@ -50,7 +50,7 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndexBuilder>();
+        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndex>();
         let r9 = Rank9SelIndex::new(&idx.data);
         idx.data.size_in_bytes() + idx.index.size_in_bytes() + r9.size_in_bytes()
     };
