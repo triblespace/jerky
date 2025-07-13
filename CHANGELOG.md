@@ -25,3 +25,5 @@
 - Removed obsolete `RawBitVector` type.
 - Removed the `Rank9Sel` wrapper; use `BitVector<Rank9SelIndex>` directly.
 - Removed the `DArray` wrapper; use `BitVector<darray::inner::DArrayFullIndex>` instead.
+- Removed the `Build` trait for bit vectors; construct indexes via `BitVectorBuilder` and `IndexBuilder`.
+- Simplified benchmark code by importing index types and relying on type inference.

@@ -1,5 +1,7 @@
+use jerky::bit_vectors::darray::inner::{DArrayFullIndex, DArrayFullIndexBuilder};
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::Build;
+use jerky::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use jerky::bit_vectors::BitVector;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
@@ -24,17 +26,15 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex> =
-            b.freeze::<jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder>();
+        let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
         idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
     print_memory("BitVector<Rank9SelIndex>", bytes);
 
     let bytes = {
-        let idx = jerky::bit_vectors::BitVector::<
-            jerky::bit_vectors::rank9sel::inner::Rank9SelIndex,
-        >::build_from_bits(bits.iter().cloned(), false, true, true)
-        .unwrap();
+        let mut b = BitVectorBuilder::new();
+        b.extend_bits(bits.iter().cloned());
+        let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
         idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
     print_memory("BitVector<Rank9SelIndex> (with select hints)", bytes);
@@ -42,8 +42,7 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
-            b.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
+        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndexBuilder>();
         idx.data.size_in_bytes() + idx.index.size_in_bytes()
     };
     print_memory("BitVector<DArrayFullIndex>", bytes);
@@ -51,9 +50,8 @@ fn show_memories(p: f64) {
     let bytes = {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
-            b.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
-        let r9 = jerky::bit_vectors::rank9sel::inner::Rank9SelIndex::new(&idx.data);
+        let idx: BitVector<DArrayFullIndex> = b.freeze::<DArrayFullIndexBuilder>();
+        let r9 = Rank9SelIndex::new(&idx.data);
         idx.data.size_in_bytes() + idx.index.size_in_bytes() + r9.size_in_bytes()
     };
     print_memory("BitVector<DArrayFullIndex> (with rank index)", bytes);

@@ -6,7 +6,7 @@ use anybytes::{Bytes, View};
 use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorData;
-use crate::bit_vectors::{Access, NumBits};
+use crate::bit_vectors::Access;
 use crate::broadword;
 
 const BLOCK_LEN: usize = 1024;
@@ -20,6 +20,14 @@ pub struct DArrayIndex<const OVER_ONE: bool> {
     subblock_inventory: View<[u16]>,
     overflow_positions: View<[usize]>,
     num_positions: usize,
+}
+
+impl<const OVER_ONE: bool> crate::bit_vectors::data::IndexBuilder for DArrayIndex<OVER_ONE> {
+    type Built = DArrayIndex<OVER_ONE>;
+
+    fn build(data: &BitVectorData) -> Self::Built {
+        DArrayIndex::new(data)
+    }
 }
 
 /// Builder for [`DArrayIndex`].
@@ -51,6 +59,14 @@ impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
 pub struct DArrayFullIndex {
     s1: DArrayIndex<true>,
     s0: DArrayIndex<false>,
+}
+
+impl crate::bit_vectors::data::IndexBuilder for DArrayFullIndex {
+    type Built = DArrayFullIndex;
+
+    fn build(data: &BitVectorData) -> Self::Built {
+        DArrayFullIndex::new(data)
+    }
 }
 
 /// Builder for [`DArrayFullIndex`].

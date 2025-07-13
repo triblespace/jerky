@@ -6,7 +6,6 @@ use anybytes::{Bytes, View};
 use anyhow::Result;
 
 use crate::bit_vectors::data::BitVectorData;
-use crate::bit_vectors::NumBits;
 use crate::broadword;
 
 const BLOCK_LEN: usize = 8;

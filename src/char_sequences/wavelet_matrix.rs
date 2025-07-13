@@ -6,9 +6,9 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::data::BitVectorBuilder;
+use crate::bit_vectors::data::{BitVectorBuilder, BitVectorIndex, IndexBuilder};
 use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vectors::{Access, BitVector, Build, NoIndex, NumBits, Rank, Select};
+use crate::bit_vectors::{Access, BitVector, NumBits, Rank, Select};
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 
@@ -34,7 +34,7 @@ use crate::utils;
 /// // It accepts an integer representable in 8 bits.
 /// let mut builder = CompactVectorBuilder::new(8)?;
 /// builder.extend(text.chars().map(|c| c as usize))?;
-/// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+/// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
 ///
 /// assert_eq!(wm.len(), len);
 /// assert_eq!(wm.alph_size(), 'n' as usize + 1);
@@ -55,14 +55,14 @@ use crate::utils;
 ///
 /// - F. Claude, and G. Navarro, "The Wavelet Matrix," In SPIRE 2012.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct WaveletMatrix<B> {
-    layers: Vec<B>,
+pub struct WaveletMatrix<I> {
+    layers: Vec<BitVector<I>>,
     alph_size: usize,
 }
 
-impl<B> WaveletMatrix<B>
+impl<I> WaveletMatrix<I>
 where
-    B: Access + Build + NumBits + Rank + Select,
+    I: BitVectorIndex + IndexBuilder<Built = I>,
 {
     /// Creates a new instance from an input sequence `seq`.
     ///
@@ -70,8 +70,7 @@ where
     ///
     /// An error is returned if
     ///
-    ///  - `seq` is empty, or
-    ///  - `B::build_from_bits` fails.
+    ///  - `seq` is empty.
     pub fn new(seq: CompactVector) -> Result<Self> {
         if seq.is_empty() {
             return Err(anyhow!("seq must not be empty."));
@@ -104,13 +103,8 @@ where
             );
             zeros = next_zeros.freeze();
             ones = next_ones.freeze();
-            let bits: BitVector<NoIndex> = bv.freeze::<NoIndex>();
-            layers.push(B::build_from_bits(
-                (0..bits.len()).map(|i| bits.access(i).unwrap()),
-                true,
-                true,
-                true,
-            )?);
+            let bits = bv.freeze::<I>();
+            layers.push(bits);
         }
 
         Ok(Self { layers, alph_size })
@@ -154,7 +148,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.access(2), Some('n' as usize));
     /// assert_eq!(wm.access(5), Some('a' as usize));
@@ -204,7 +198,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank(3, 'a' as usize), Some(1));
     /// assert_eq!(wm.rank(5, 'c' as usize), Some(0));
@@ -239,7 +233,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.rank_range(1..4, 'a' as usize), Some(2));
     /// assert_eq!(wm.rank_range(2..4, 'c' as usize), Some(0));
@@ -295,7 +289,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.select(1, 'a' as usize), Some(3));
     /// assert_eq!(wm.select(0, 'c' as usize), None);
@@ -356,7 +350,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// assert_eq!(wm.quantile(1..4, 0), Some('a' as usize)); // The 0th in "ana" should be "a"
     /// assert_eq!(wm.quantile(1..4, 1), Some('a' as usize)); // The 1st in "ana" should be "a"
@@ -424,7 +418,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// // Intersections among "ana", "na", and "ba".
     /// assert_eq!(
@@ -530,7 +524,7 @@ where
     ///
     /// let mut builder = CompactVectorBuilder::new(8)?;
     ///  builder.extend("ban".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(builder.freeze())?;
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
     ///
     /// let mut it = wm.iter();
     /// assert_eq!(it.next(), Some('b' as usize));
@@ -540,7 +534,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub const fn iter(&self) -> Iter<B> {
+    pub const fn iter(&self) -> Iter<I> {
         Iter::new(self)
     }
 
@@ -570,21 +564,21 @@ where
 }
 
 /// Iterator for enumerating integers, created by [`WaveletMatrix::iter()`].
-pub struct Iter<'a, B> {
-    wm: &'a WaveletMatrix<B>,
+pub struct Iter<'a, I> {
+    wm: &'a WaveletMatrix<I>,
     pos: usize,
 }
 
-impl<'a, B> Iter<'a, B> {
+impl<'a, I> Iter<'a, I> {
     /// Creates a new iterator.
-    pub const fn new(wm: &'a WaveletMatrix<B>) -> Self {
+    pub const fn new(wm: &'a WaveletMatrix<I>) -> Self {
         Self { wm, pos: 0 }
     }
 }
 
-impl<B> Iterator for Iter<'_, B>
+impl<I> Iterator for Iter<'_, I>
 where
-    B: Access + Build + NumBits + Rank + Select,
+    I: BitVectorIndex + IndexBuilder<Built = I>,
 {
     type Item = usize;
 
@@ -606,7 +600,7 @@ where
     }
 }
 
-impl WaveletMatrix<BitVector<Rank9SelIndex>> {
+impl WaveletMatrix<Rank9SelIndex> {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of::<usize>()
@@ -623,12 +617,11 @@ impl WaveletMatrix<BitVector<Rank9SelIndex>> {
 mod test {
     use super::*;
 
-    use crate::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 
     #[test]
     fn test_empty_seq() {
-        let e =
-            WaveletMatrix::<BitVector<Rank9SelIndex>>::new(CompactVector::new(1).unwrap().freeze());
+        let e = WaveletMatrix::<Rank9SelIndex>::new(CompactVector::new(1).unwrap().freeze());
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("seq must not be empty.".to_string())
@@ -644,7 +637,7 @@ mod test {
         let mut builder = CompactVectorBuilder::new(8).unwrap();
         builder.extend(text.chars().map(|c| c as usize)).unwrap();
         let seq = builder.freeze();
-        let wm = WaveletMatrix::<BitVector<Rank9SelIndex>>::new(seq).unwrap();
+        let wm = WaveletMatrix::<Rank9SelIndex>::new(seq).unwrap();
 
         assert_eq!(wm.len(), len);
         assert_eq!(wm.alph_size(), ('u' as usize) + 1);

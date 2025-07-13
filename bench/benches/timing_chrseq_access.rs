@@ -3,8 +3,12 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
+use jerky::bit_vectors::darray::inner::DArrayFullIndex;
 use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::prelude::*;
+use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+use jerky::bit_vectors::{BitVector, NoIndex};
+use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
 
 use criterion::{
@@ -30,8 +34,7 @@ fn load_text(s: &str) -> CompactVector {
     for &c in &text {
         builder.set_bit(c as usize, true).unwrap();
     }
-    let alphabet: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
-        builder.freeze::<jerky::bit_vectors::NoIndex>();
+    let alphabet: BitVector<NoIndex> = builder.freeze();
     for i in 0..text.len() {
         text[i] = alphabet.rank1(text[i] as usize).unwrap() as u8;
     }
@@ -76,9 +79,9 @@ fn criterion_chrseq_access_proteins(c: &mut Criterion) {
     perform_chrseq_access(&mut group, &text);
 }
 
-fn run_queries<B>(idx: &jerky::char_sequences::WaveletMatrix<B>, queries: &[usize])
+fn run_queries<I>(idx: &WaveletMatrix<I>, queries: &[usize])
 where
-    B: Access + Build + NumBits + Rank + Select,
+    I: BitVectorIndex + IndexBuilder<Built = I>,
 {
     let mut sum = 0;
     for &q in queries {
@@ -92,19 +95,13 @@ where
 fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVector) {
     let queries = gen_random_ints(NUM_QUERIES, 0, text.len(), SEED_QUERIES);
 
-    group.bench_function("jerky/WaveletMatrix<BitVector<Rank9SelIndex>>", |b| {
-        let idx = jerky::char_sequences::WaveletMatrix::<
-            jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex>,
-        >::new(text.clone())
-        .unwrap();
+    group.bench_function("jerky/WaveletMatrix<Rank9SelIndex>", |b| {
+        let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 
-    group.bench_function("jerky/WaveletMatrix<BitVector<DArrayFullIndex>>", |b| {
-        let idx = jerky::char_sequences::WaveletMatrix::<
-            jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex>,
-        >::new(text.clone())
-        .unwrap();
+    group.bench_function("jerky/WaveletMatrix<DArrayFullIndex>", |b| {
+        let idx = WaveletMatrix::<DArrayFullIndex>::new(text.clone()).unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }
