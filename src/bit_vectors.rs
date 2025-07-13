@@ -54,14 +54,11 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector, prelude::*};
+//! use jerky::bit_vectors::{data::BitVectorBuilder, rank9sel::inner::Rank9SelIndex, BitVector, prelude::*};
 //!
-//! let bv: BitVector<Rank9SelIndex> = BitVector::build_from_bits(
-//!     [true, false, false, true],
-//!     true, // Enables rank1/0
-//!     true, // Enables select1
-//!     true  // Enables select0
-//! )?;
+//! let mut builder = BitVectorBuilder::new();
+//! builder.extend_bits([true, false, false, true]);
+//! let bv = builder.freeze::<Rank9SelIndex>();
 //!
 //! assert_eq!(bv.num_bits(), 4);
 //! assert_eq!(bv.num_ones(), 2);
@@ -84,35 +81,7 @@ pub mod rank9sel;
 
 pub use data::{BitVector, BitVectorData, BitVectorIndex, IndexBuilder, NoIndex};
 
-use anyhow::Result;
-
 /// Interface for building a bit vector with rank/select queries.
-pub trait Build {
-    /// Creates a new vector from input bit stream `bits`.
-    ///
-    /// A data structure may not support a part of rank/select queries in the default
-    /// configuration. The last three flags allow to enable them if optionally supported.
-    ///
-    /// # Arguments
-    ///
-    /// - `bits`: Bit stream.
-    /// - `with_rank`: Flag to enable rank1/0.
-    /// - `with_select1`: Flag to enable select1.
-    /// - `with_select0`: Flag to enable select0.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if specified queries are not supported.
-    fn build_from_bits<I>(
-        bits: I,
-        with_rank: bool,
-        with_select1: bool,
-        with_select0: bool,
-    ) -> Result<Self>
-    where
-        I: IntoIterator<Item = bool>,
-        Self: Sized;
-}
 
 /// Interface for reporting basic statistics in a bit vector.
 pub trait NumBits {

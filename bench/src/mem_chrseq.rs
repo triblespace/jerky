@@ -1,5 +1,7 @@
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::Rank;
+use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+use jerky::bit_vectors::{BitVector, NoIndex, Rank};
+use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
 
 const DBLP_PSEF_STR: &str = include_str!("../data/texts/dblp.1MiB.txt");
@@ -20,8 +22,7 @@ fn load_text(s: &str) -> CompactVector {
     for &c in &text {
         builder.set_bit(c as usize, true).unwrap();
     }
-    let alphabet: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
-        builder.freeze::<jerky::bit_vectors::NoIndex>();
+    let alphabet: BitVector<NoIndex> = builder.freeze();
     for i in 0..text.len() {
         text[i] = alphabet.rank1(text[i] as usize).unwrap() as u8;
     }
@@ -33,13 +34,10 @@ fn show_memories(title: &str, text: &CompactVector) {
     show_data_stats(text);
 
     let bytes = {
-        let idx = jerky::char_sequences::WaveletMatrix::<
-            jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex>,
-        >::new(text.clone())
-        .unwrap();
+        let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
         idx.size_in_bytes()
     };
-    print_memory("WaveletMatrix<BitVector<Rank9SelIndex>>", bytes, text.len());
+    print_memory("WaveletMatrix<Rank9SelIndex>", bytes, text.len());
 }
 
 fn show_data_stats(text: &CompactVector) {

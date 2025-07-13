@@ -6,9 +6,10 @@ use rand_chacha::ChaChaRng;
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
+use jerky::bit_vectors::darray::inner::{DArrayFullIndex, DArrayFullIndexBuilder};
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::Build;
-use jerky::bit_vectors::Select;
+use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+use jerky::bit_vectors::{BitVector, NoIndex, Select};
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
@@ -46,24 +47,21 @@ fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], qu
     group.bench_function("jerky/BitVector", |b| {
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
-            builder.freeze::<jerky::bit_vectors::NoIndex>();
+        let idx: BitVector<NoIndex> = builder.freeze();
         b.iter(|| run_queries(&idx, &queries));
     });
 
     group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
-        let idx = jerky::bit_vectors::BitVector::<
-            jerky::bit_vectors::rank9sel::inner::Rank9SelIndex,
-        >::build_from_bits(bits.iter().cloned(), false, true, false)
-        .unwrap();
+        let mut builder = BitVectorBuilder::new();
+        builder.extend_bits(bits.iter().cloned());
+        let idx = builder.freeze::<Rank9SelIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 
     group.bench_function("jerky/BitVector<DArrayFullIndex>", |b| {
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::darray::inner::DArrayFullIndex> =
-            builder.freeze::<jerky::bit_vectors::darray::inner::DArrayFullIndexBuilder>();
+        let idx = builder.freeze::<DArrayFullIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

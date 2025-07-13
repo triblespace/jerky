@@ -312,10 +312,10 @@ mod tests {
 
         let mut b = BitVectorBuilder::new();
         b.extend_bits([true, false, false, true, false]);
-        let f0: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
+        let f0 = b.freeze::<Rank9SelIndexBuilder>();
         let mut b = BitVectorBuilder::new();
         b.extend_bits([false, true]);
-        let f1: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndexBuilder>();
+        let f1 = b.freeze::<Rank9SelIndexBuilder>();
         assert_eq!(seq.flags, vec![f0, f1]);
 
         assert!(!seq.is_empty());

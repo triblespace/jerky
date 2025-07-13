@@ -8,7 +8,8 @@ use criterion::{
 };
 
 use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::Rank;
+use jerky::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use jerky::bit_vectors::{BitVector, NoIndex, Rank};
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
@@ -42,16 +43,14 @@ fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], quer
     group.bench_function("jerky/BitVector", |b| {
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::NoIndex> =
-            builder.freeze::<jerky::bit_vectors::NoIndex>();
+        let idx: BitVector<NoIndex> = builder.freeze();
         b.iter(|| run_queries(&idx, &queries));
     });
 
     group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
-        let idx: jerky::bit_vectors::BitVector<jerky::bit_vectors::rank9sel::inner::Rank9SelIndex> =
-            builder.freeze::<jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder>();
+        let idx = builder.freeze::<Rank9SelIndexBuilder>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }
