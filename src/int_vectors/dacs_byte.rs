@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vectors::data::BitVectorBuilder;
-use crate::bit_vectors::rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder};
+use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use crate::bit_vectors::{self, BitVector, Rank};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
@@ -118,7 +118,7 @@ impl DacsByte {
 
         let flags = flags
             .into_iter()
-            .map(|bvb| bvb.freeze::<Rank9SelIndexBuilder>())
+            .map(|bvb| bvb.freeze::<Rank9SelIndex<true, true>>())
             .collect();
         Ok(Self { data, flags })
     }
@@ -312,10 +312,10 @@ mod tests {
 
         let mut b = BitVectorBuilder::new();
         b.extend_bits([true, false, false, true, false]);
-        let f0 = b.freeze::<Rank9SelIndexBuilder>();
+        let f0 = b.freeze::<Rank9SelIndex<true, true>>();
         let mut b = BitVectorBuilder::new();
         b.extend_bits([false, true]);
-        let f1 = b.freeze::<Rank9SelIndexBuilder>();
+        let f1 = b.freeze::<Rank9SelIndex<true, true>>();
         assert_eq!(seq.flags, vec![f0, f1]);
 
         assert!(!seq.is_empty());

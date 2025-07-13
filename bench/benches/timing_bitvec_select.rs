@@ -6,7 +6,7 @@ use rand_chacha::ChaChaRng;
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
-use jerky::bit_vectors::darray::inner::{DArrayFullIndex, DArrayFullIndexBuilder};
+use jerky::bit_vectors::darray::inner::DArrayFullIndex;
 use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use jerky::bit_vectors::{BitVector, NoIndex, Select};

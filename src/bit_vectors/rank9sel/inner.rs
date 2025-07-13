@@ -14,31 +14,23 @@ const SELECT_ZEROS_PER_HINT: usize = SELECT_ONES_PER_HINT;
 
 /// The index implementation separated from the bit vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Rank9SelIndex {
+pub struct Rank9SelIndex<const SELECT1: bool = true, const SELECT0: bool = true> {
     len: usize,
     block_rank_pairs: View<[usize]>,
     select1_hints: Option<View<[usize]>>,
     select0_hints: Option<View<[usize]>>,
 }
 
-/// Builder for [`Rank9SelIndex`].
+/// Internal builder for [`Rank9SelIndex`].
 #[derive(Default, Debug, Clone)]
-pub struct Rank9SelIndexBuilder {
+struct Rank9SelIndexBuilder<const SELECT1: bool, const SELECT0: bool> {
     len: usize,
     block_rank_pairs: Vec<usize>,
     select1_hints: Option<Vec<usize>>,
     select0_hints: Option<Vec<usize>>,
 }
 
-impl crate::bit_vectors::data::IndexBuilder for Rank9SelIndexBuilder {
-    type Built = Rank9SelIndex;
-
-    fn build(data: &BitVectorData) -> Self::Built {
-        Rank9SelIndexBuilder::new(data).build()
-    }
-}
-
-impl Rank9SelIndexBuilder {
+impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndexBuilder<SELECT1, SELECT0> {
     /// Creates a builder from the given bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
         Self::build_rank(data)
@@ -60,7 +52,7 @@ impl Rank9SelIndexBuilder {
     }
 
     /// Freezes and returns [`Rank9SelIndex`].
-    pub fn build(self) -> Rank9SelIndex {
+    pub fn build(self) -> Rank9SelIndex<SELECT1, SELECT0> {
         let block_rank_pairs = Bytes::from_source(self.block_rank_pairs)
             .view::<[usize]>()
             .unwrap();
@@ -70,7 +62,7 @@ impl Rank9SelIndexBuilder {
         let select0_hints = self
             .select0_hints
             .map(|v| Bytes::from_source(v).view::<[usize]>().unwrap());
-        Rank9SelIndex {
+        Rank9SelIndex::<SELECT1, SELECT0> {
             len: self.len,
             block_rank_pairs,
             select1_hints,
@@ -175,10 +167,17 @@ impl Rank9SelIndexBuilder {
     }
 }
 
-impl Rank9SelIndex {
+impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// Creates a new index from the given bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
-        Rank9SelIndexBuilder::new(data).build()
+        let mut builder = Rank9SelIndexBuilder::<SELECT1, SELECT0>::new(data);
+        if SELECT1 {
+            builder = builder.select1_hints();
+        }
+        if SELECT0 {
+            builder = builder.select0_hints();
+        }
+        builder.build()
     }
 
     /// Gets the number of bits set.
@@ -238,10 +237,11 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
+    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vectors::BitVectorData;
     ///
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::from_data(&data).build();
+    /// let idx = Rank9SelIndex::<true, true>::new(&data);
 
     /// assert_eq!(idx.rank1(&data, 1), Some(1));
     /// assert_eq!(idx.rank1(&data, 2), Some(1));
@@ -283,9 +283,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
+    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vectors::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::from_data(&data).build();
+    /// let idx = Rank9SelIndex::<true, true>::new(&data);
     /// assert_eq!(idx.rank0(&data, 2), Some(1));
     /// assert_eq!(idx.rank0(&data, 3), Some(2));
     /// assert_eq!(idx.rank0(&data, 4), Some(2));
@@ -314,9 +315,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{rank9sel::inner::{Rank9SelIndex, Rank9SelIndexBuilder}, BitVectorData};
+    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vectors::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::from_data(&data).select1_hints().build();
+    /// let idx = Rank9SelIndex::<true, false>::new(&data);
     ///
     /// assert_eq!(idx.select1(&data, 0), Some(0));
     /// assert_eq!(idx.select1(&data, 1), Some(3));
@@ -387,10 +389,10 @@ impl Rank9SelIndex {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndexBuilder;
+    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
     /// use jerky::bit_vectors::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let idx = Rank9SelIndexBuilder::from_data(&data).select0_hints().build();
+    /// let idx = Rank9SelIndex::<false, true>::new(&data);
     /// assert_eq!(idx.select0(&data, 0), Some(1));
     /// assert_eq!(idx.select0(&data, 1), Some(2));
     /// assert_eq!(idx.select0(&data, 2), None);
@@ -442,7 +444,7 @@ impl Rank9SelIndex {
     }
 }
 
-impl Rank9SelIndex {
+impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// Reconstructs the index from zero-copy [`Bytes`].
     pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
         let len = *bytes
@@ -486,6 +488,9 @@ impl Rank9SelIndex {
         } else {
             None
         };
+        if has_select1 != SELECT1 || has_select0 != SELECT0 {
+            return Err(anyhow::anyhow!("mismatched hint flags"));
+        }
         Ok(Self {
             len,
             block_rank_pairs,
@@ -535,7 +540,20 @@ impl Rank9SelIndex {
     }
 }
 
-impl crate::bit_vectors::data::BitVectorIndex for Rank9SelIndex {
+impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vectors::data::BitVectorIndex
+    for Rank9SelIndex<SELECT1, SELECT0>
+{
+    fn build(data: &BitVectorData) -> Self {
+        let mut builder = Rank9SelIndexBuilder::<SELECT1, SELECT0>::new(data);
+        if SELECT1 {
+            builder = builder.select1_hints();
+        }
+        if SELECT0 {
+            builder = builder.select0_hints();
+        }
+        builder.build()
+    }
+
     fn num_ones(&self, _data: &BitVectorData) -> usize {
         self.num_ones()
     }
@@ -560,20 +578,17 @@ mod tests {
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let data = BitVectorData::from_bits([false, true, true, false, true]);
-        let idx = Rank9SelIndexBuilder::from_data(&data)
-            .select1_hints()
-            .select0_hints()
-            .build();
+        let idx = Rank9SelIndex::<true, true>::new(&data);
         let bytes = idx.to_bytes();
-        let other = Rank9SelIndex::from_bytes(bytes).unwrap();
+        let other = Rank9SelIndex::<true, true>::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
     }
 
     #[test]
     fn test_builder_from_data() {
         let data = BitVectorData::from_bits([true, false, true, false]);
-        let idx_from_data = Rank9SelIndexBuilder::from_data(&data).build();
-        let idx_from_new = Rank9SelIndexBuilder::from_data(&data).build();
+        let idx_from_data = Rank9SelIndex::<true, true>::new(&data);
+        let idx_from_new = Rank9SelIndex::<true, true>::new(&data);
         assert_eq!(idx_from_data, idx_from_new);
     }
 }

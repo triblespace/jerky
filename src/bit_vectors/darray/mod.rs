@@ -2,4 +2,4 @@
 
 pub mod inner;
 
-pub use inner::{DArrayFullIndex, DArrayFullIndexBuilder, DArrayIndex, DArrayIndexBuilder};
+pub use inner::{DArrayFullIndex, DArrayIndex};

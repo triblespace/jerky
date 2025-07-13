@@ -98,9 +98,9 @@ impl BitVectorBuilder {
     }
 
     /// Finalizes the builder into a [`BitVector`].
-    pub fn freeze<B: IndexBuilder>(self) -> BitVector<B::Built> {
+    pub fn freeze<I: BitVectorIndex>(self) -> BitVector<I> {
         let data = self.into_data();
-        let index = B::build(&data);
+        let index = I::build(&data);
         BitVector::new(data, index)
     }
 
@@ -210,7 +210,10 @@ impl Access for BitVectorData {
 }
 
 /// Index trait for bit vector data.
-pub trait BitVectorIndex {
+pub trait BitVectorIndex: Sized {
+    /// Constructs an index from bit vector data.
+    fn build(data: &BitVectorData) -> Self;
+
     /// Counts set bits in the data.
     fn num_ones(&self, data: &BitVectorData) -> usize;
 
@@ -234,20 +237,15 @@ pub trait BitVectorIndex {
     fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize>;
 }
 
-/// Helper trait for constructing indexes from [`BitVectorData`].
-pub trait IndexBuilder {
-    /// Output index type constructed by this builder.
-    type Built: BitVectorIndex;
-
-    /// Builds an index from the given data.
-    fn build(data: &BitVectorData) -> Self::Built;
-}
-
 /// Placeholder index that performs linear scans over the data.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoIndex;
 
 impl BitVectorIndex for NoIndex {
+    fn build(_: &BitVectorData) -> Self {
+        NoIndex
+    }
+
     fn num_ones(&self, data: &BitVectorData) -> usize {
         data.words
             .iter()
@@ -310,14 +308,6 @@ impl BitVectorIndex for NoIndex {
         } else {
             None
         }
-    }
-}
-
-impl IndexBuilder for NoIndex {
-    type Built = NoIndex;
-
-    fn build(_: &BitVectorData) -> Self::Built {
-        NoIndex
     }
 }
 

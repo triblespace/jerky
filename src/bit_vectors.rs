@@ -79,7 +79,7 @@ pub mod data;
 pub mod prelude;
 pub mod rank9sel;
 
-pub use data::{BitVector, BitVectorData, BitVectorIndex, IndexBuilder, NoIndex};
+pub use data::{BitVector, BitVectorData, BitVectorIndex, NoIndex};
 
 /// Interface for building a bit vector with rank/select queries.
 
