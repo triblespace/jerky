@@ -13,57 +13,68 @@ const BLOCK_LEN: usize = 1024;
 const SUBBLOCK_LEN: usize = 32;
 const MAX_IN_BLOCK_DISTANCE: usize = 1 << 16;
 
-/// The index implementation separated from the [`BitVector`] data.
+/// Internal index implementation over ones (`OVER_ONE = true`) or zeros
+/// (`OVER_ONE = false`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DArrayIndex<const OVER_ONE: bool> {
+pub struct DArraySelectIndex<const OVER_ONE: bool> {
     block_inventory: View<[isize]>,
     subblock_inventory: View<[u16]>,
     overflow_positions: View<[usize]>,
     num_positions: usize,
 }
 
-/// Builder for [`DArrayIndex`].
+/// Builder for [`DArraySelectIndex`].
 #[derive(Default, Debug, Clone)]
-struct DArrayIndexBuilder<const OVER_ONE: bool> {
+struct DArraySelectIndexBuilder<const OVER_ONE: bool> {
     block_inventory: Vec<isize>,
     subblock_inventory: Vec<u16>,
     overflow_positions: Vec<usize>,
     num_positions: usize,
 }
 
-impl<const OVER_ONE: bool> Default for DArrayIndex<OVER_ONE> {
+impl<const OVER_ONE: bool> Default for DArraySelectIndex<OVER_ONE> {
     fn default() -> Self {
-        DArrayIndexBuilder::<OVER_ONE>::default().build()
+        DArraySelectIndexBuilder::<OVER_ONE>::default().build()
     }
 }
 
-/// Index type that supports both `select1` and `select0` by wrapping
-/// [`DArrayIndex<true>`] and [`DArrayIndex<false>`].
+/// Index type optionally supporting `select1` and `select0` queries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DArrayFullIndex {
-    s1: DArrayIndex<true>,
-    s0: DArrayIndex<false>,
+pub struct DArrayIndex<const SELECT1: bool = true, const SELECT0: bool = true> {
+    len: usize,
+    s1: Option<DArraySelectIndex<true>>,
+    s0: Option<DArraySelectIndex<false>>,
 }
 
-/// Builder for [`DArrayFullIndex`].
+/// Builder for [`DArrayIndex`].
 #[derive(Default, Debug, Clone)]
-struct DArrayFullIndexBuilder {
-    s1: DArrayIndexBuilder<true>,
-    s0: DArrayIndexBuilder<false>,
+struct DArrayIndexBuilder<const SELECT1: bool, const SELECT0: bool> {
+    s1: Option<DArraySelectIndexBuilder<true>>,
+    s0: Option<DArraySelectIndexBuilder<false>>,
+    len: usize,
 }
 
-impl Default for DArrayFullIndex {
+impl<const SELECT1: bool, const SELECT0: bool> Default for DArrayIndex<SELECT1, SELECT0> {
     fn default() -> Self {
-        DArrayFullIndexBuilder::default().build()
+        DArrayIndexBuilder::<SELECT1, SELECT0>::default().build()
     }
 }
 
-impl DArrayFullIndexBuilder {
+impl<const SELECT1: bool, const SELECT0: bool> DArrayIndexBuilder<SELECT1, SELECT0> {
     /// Creates a builder from the given bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
         Self {
-            s1: DArrayIndexBuilder::<true>::from_data(data),
-            s0: DArrayIndexBuilder::<false>::from_data(data),
+            s1: if SELECT1 {
+                Some(DArraySelectIndexBuilder::<true>::from_data(data))
+            } else {
+                None
+            },
+            s0: if SELECT0 {
+                Some(DArraySelectIndexBuilder::<false>::from_data(data))
+            } else {
+                None
+            },
+            len: data.len(),
         }
     }
 
@@ -72,36 +83,125 @@ impl DArrayFullIndexBuilder {
         Self::new(data)
     }
 
-    /// Freezes and returns [`DArrayFullIndex`].
-    pub fn build(self) -> DArrayFullIndex {
-        DArrayFullIndex {
-            s1: self.s1.build(),
-            s0: self.s0.build(),
+    /// Freezes and returns [`DArrayIndex`].
+    pub fn build(self) -> DArrayIndex<SELECT1, SELECT0> {
+        DArrayIndex {
+            len: self.len,
+            s1: if SELECT1 {
+                Some(self.s1.unwrap().build())
+            } else {
+                None
+            },
+            s0: if SELECT0 {
+                Some(self.s0.unwrap().build())
+            } else {
+                None
+            },
         }
     }
 }
 
-impl DArrayFullIndex {
-    /// Creates a new [`DArrayFullIndex`] from bit vector data.
+impl<const SELECT1: bool, const SELECT0: bool> DArrayIndex<SELECT1, SELECT0> {
+    /// Creates a new [`DArrayIndex`] from bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
-        DArrayFullIndexBuilder::new(data).build()
+        DArrayIndexBuilder::<SELECT1, SELECT0>::new(data).build()
     }
 
     /// Returns the number of integers set to one.
     #[inline(always)]
     pub fn num_ones(&self) -> usize {
-        self.s1.num_ones()
+        if SELECT1 {
+            self.s1.as_ref().unwrap().num_ones()
+        } else if SELECT0 {
+            self.len - self.s0.as_ref().unwrap().num_ones()
+        } else {
+            0
+        }
     }
 
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
-        self.s1.size_in_bytes() + self.s0.size_in_bytes()
+        let mut mem = std::mem::size_of::<usize>();
+        if let Some(ref idx) = self.s1 {
+            mem += idx.size_in_bytes();
+        }
+        if let Some(ref idx) = self.s0 {
+            mem += idx.size_in_bytes();
+        }
+        mem
+    }
+
+    /// Reconstructs the index from zero-copy [`Bytes`].
+    pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
+        let len = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let has_s1 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let s1 = if has_s1 {
+            let blen = *bytes
+                .view_prefix::<usize>()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            let idx_bytes = bytes
+                .take_prefix(blen)
+                .ok_or_else(|| anyhow::anyhow!("invalid bytes"))?;
+            Some(DArraySelectIndex::<true>::from_bytes(idx_bytes)?)
+        } else {
+            None
+        };
+        let has_s0 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let s0 = if has_s0 {
+            let blen = *bytes
+                .view_prefix::<usize>()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            let idx_bytes = bytes
+                .take_prefix(blen)
+                .ok_or_else(|| anyhow::anyhow!("invalid bytes"))?;
+            Some(DArraySelectIndex::<false>::from_bytes(idx_bytes)?)
+        } else {
+            None
+        };
+        if has_s1 != SELECT1 || has_s0 != SELECT0 {
+            return Err(anyhow::anyhow!("mismatched flags"));
+        }
+        Ok(Self { len, s1, s0 })
+    }
+
+    /// Serializes the index metadata and data into a [`Bytes`] buffer.
+    pub fn to_bytes(&self) -> Bytes {
+        use core::ops::Deref;
+        let mut store: Vec<u8> = Vec::new();
+        store.extend_from_slice(&self.len.to_ne_bytes());
+        if let Some(ref idx) = self.s1 {
+            store.extend_from_slice(&1usize.to_ne_bytes());
+            let bytes = idx.to_bytes();
+            store.extend_from_slice(&bytes.len().to_ne_bytes());
+            store.extend_from_slice(bytes.deref());
+        } else {
+            store.extend_from_slice(&0usize.to_ne_bytes());
+        }
+        if let Some(ref idx) = self.s0 {
+            store.extend_from_slice(&1usize.to_ne_bytes());
+            let bytes = idx.to_bytes();
+            store.extend_from_slice(&bytes.len().to_ne_bytes());
+            store.extend_from_slice(bytes.deref());
+        } else {
+            store.extend_from_slice(&0usize.to_ne_bytes());
+        }
+        Bytes::from_source(store)
     }
 }
 
-impl crate::bit_vectors::data::BitVectorIndex for DArrayFullIndex {
+impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vectors::data::BitVectorIndex
+    for DArrayIndex<SELECT1, SELECT0>
+{
     fn build(data: &BitVectorData) -> Self {
-        DArrayFullIndex::new(data)
+        DArrayIndex::<SELECT1, SELECT0>::new(data)
     }
 
     fn num_ones(&self, _data: &BitVectorData) -> usize {
@@ -109,20 +209,54 @@ impl crate::bit_vectors::data::BitVectorIndex for DArrayFullIndex {
     }
 
     fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
-        // rank is not supported; fall back to scanning via s1
-        crate::bit_vectors::data::BitVectorIndex::rank1(&self.s1, data, pos)
+        if data.len() < pos {
+            return None;
+        }
+        let mut cnt = 0;
+        for i in 0..pos {
+            if data.access(i).unwrap() {
+                cnt += 1;
+            }
+        }
+        Some(cnt)
     }
 
     fn select1(&self, data: &BitVectorData, k: usize) -> Option<usize> {
-        crate::bit_vectors::data::BitVectorIndex::select1(&self.s1, data, k)
+        if SELECT1 {
+            self.s1.as_ref().unwrap().select(data, k)
+        } else {
+            let mut cnt = 0;
+            for i in 0..data.len() {
+                if data.access(i).unwrap() {
+                    if cnt == k {
+                        return Some(i);
+                    }
+                    cnt += 1;
+                }
+            }
+            None
+        }
     }
 
     fn select0(&self, data: &BitVectorData, k: usize) -> Option<usize> {
-        crate::bit_vectors::data::BitVectorIndex::select0(&self.s0, data, k)
+        if SELECT0 {
+            self.s0.as_ref().unwrap().select(data, k)
+        } else {
+            let mut cnt = 0;
+            for i in 0..data.len() {
+                if !data.access(i).unwrap() {
+                    if cnt == k {
+                        return Some(i);
+                    }
+                    cnt += 1;
+                }
+            }
+            None
+        }
     }
 }
 
-impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
+impl<const OVER_ONE: bool> DArraySelectIndexBuilder<OVER_ONE> {
     /// Creates a builder from the given bit vector data.
     pub fn new(data: &BitVectorData) -> Self {
         let mut cur_block_positions = vec![];
@@ -144,7 +278,7 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
 
                 cur_block_positions.push(cur_pos);
                 if cur_block_positions.len() == BLOCK_LEN {
-                    DArrayIndex::<OVER_ONE>::flush_cur_block(
+                    DArraySelectIndex::<OVER_ONE>::flush_cur_block(
                         &mut cur_block_positions,
                         &mut block_inventory,
                         &mut subblock_inventory,
@@ -159,7 +293,7 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         }
 
         if !cur_block_positions.is_empty() {
-            DArrayIndex::<OVER_ONE>::flush_cur_block(
+            DArraySelectIndex::<OVER_ONE>::flush_cur_block(
                 &mut cur_block_positions,
                 &mut block_inventory,
                 &mut subblock_inventory,
@@ -184,8 +318,8 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         Self::new(data)
     }
 
-    /// Freezes and returns [`DArrayIndex`].
-    pub fn build(self) -> DArrayIndex<OVER_ONE> {
+    /// Freezes and returns [`DArraySelectIndex`].
+    pub fn build(self) -> DArraySelectIndex<OVER_ONE> {
         let block_inventory = Bytes::from_source(self.block_inventory)
             .view::<[isize]>()
             .unwrap();
@@ -195,7 +329,7 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
         let overflow_positions = Bytes::from_source(self.overflow_positions)
             .view::<[usize]>()
             .unwrap();
-        DArrayIndex::<OVER_ONE> {
+        DArraySelectIndex::<OVER_ONE> {
             block_inventory,
             subblock_inventory,
             overflow_positions,
@@ -204,14 +338,14 @@ impl<const OVER_ONE: bool> DArrayIndexBuilder<OVER_ONE> {
     }
 }
 
-impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
-    /// Creates a new [`DArrayIndex`] from input bit vector `bv`.
+impl<const OVER_ONE: bool> DArraySelectIndex<OVER_ONE> {
+    /// Creates a new [`DArraySelectIndex`] from input bit vector `bv`.
     ///
     /// # Arguments
     ///
     /// - `bv`: Input bit vector.
     pub fn new(data: &BitVectorData) -> Self {
-        DArrayIndexBuilder::<OVER_ONE>::new(data).build()
+        DArraySelectIndexBuilder::<OVER_ONE>::new(data).build()
     }
 
     /// Searches the `k`-th iteger.
@@ -232,23 +366,23 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::{darray::inner::DArrayIndex, BitVectorData};
+    /// use jerky::bit_vectors::{darray::inner::DArraySelectIndex, BitVectorData};
     ///
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::<true>::new(&data);
+    /// let da = DArraySelectIndex::<true>::new(&data);
     /// assert_eq!(da.select(&data, 0), Some(0));
     /// assert_eq!(da.select(&data, 1), Some(3));
     /// assert_eq!(da.select(&data, 2), None);
     /// ```
     ///
     /// You can perform selections over unset bits by specifying
-    /// `DArrayIndex::<false>::new(&data)`.
+    /// `DArraySelectIndex::<false>::new(&data)`.
     ///
     /// ```
-    /// use jerky::bit_vectors::{darray::inner::DArrayIndex, BitVectorData};
+    /// use jerky::bit_vectors::{darray::inner::DArraySelectIndex, BitVectorData};
     ///
     /// let data = BitVectorData::from_bits([true, false, false, true]);
-    /// let da = DArrayIndex::<false>::new(&data);
+    /// let da = DArraySelectIndex::<false>::new(&data);
     /// assert_eq!(da.select(&data, 0), Some(1));
     /// assert_eq!(da.select(&data, 1), Some(2));
     /// assert_eq!(da.select(&data, 2), None);
@@ -396,7 +530,7 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     }
 }
 
-impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
+impl<const OVER_ONE: bool> DArraySelectIndex<OVER_ONE> {
     /// Returns the number of bytes required for the old copy-based serialization.
     pub fn size_in_bytes(&self) -> usize {
         std::mem::size_of::<usize>()
@@ -410,16 +544,18 @@ impl<const OVER_ONE: bool> DArrayIndex<OVER_ONE> {
     }
 }
 
-impl<const OVER_ONE: bool> crate::bit_vectors::data::BitVectorIndex for DArrayIndex<OVER_ONE> {
+impl<const OVER_ONE: bool> crate::bit_vectors::data::BitVectorIndex
+    for DArraySelectIndex<OVER_ONE>
+{
     fn build(data: &BitVectorData) -> Self {
-        DArrayIndex::new(data)
+        DArraySelectIndex::new(data)
     }
     fn num_ones(&self, _data: &BitVectorData) -> usize {
         self.num_ones()
     }
 
     fn rank1(&self, data: &BitVectorData, pos: usize) -> Option<usize> {
-        // DArrayIndex alone does not support rank; fall back to scanning.
+        // DArraySelectIndex alone does not support rank; fall back to scanning.
         let mut cnt = 0;
         for i in 0..pos {
             if data.access(i).unwrap() == OVER_ONE {
@@ -473,40 +609,40 @@ mod tests {
     #[test]
     fn test_all_zeros_index() {
         let data = BitVectorData::from_bits([false, false, false]);
-        let da = DArrayIndex::<true>::new(&data);
+        let da = DArraySelectIndex::<true>::new(&data);
         assert_eq!(da.select(&data, 0), None);
     }
 
     #[test]
     fn test_all_ones_index() {
         let data = BitVectorData::from_bits([true, true, true]);
-        let da = DArrayIndex::<false>::new(&data);
+        let da = DArraySelectIndex::<false>::new(&data);
         assert_eq!(da.select(&data, 0), None);
     }
 
     #[test]
     fn test_zero_copy_from_to_bytes() {
         let data = BitVectorData::from_bits([true, false, true, false, true]);
-        let idx = DArrayIndex::<true>::new(&data);
+        let idx = DArraySelectIndex::<true>::new(&data);
         let bytes = idx.to_bytes();
-        let other = DArrayIndex::from_bytes(bytes).unwrap();
+        let other = DArraySelectIndex::from_bytes(bytes).unwrap();
         assert_eq!(idx, other);
     }
 
     #[test]
     fn test_builder_roundtrip() {
         let data = BitVectorData::from_bits([true, false, true, true, false, false]);
-        let idx = DArrayIndex::<true>::new(&data);
+        let idx = DArraySelectIndex::<true>::new(&data);
         let bytes = idx.to_bytes();
-        let from = DArrayIndex::<true>::from_bytes(bytes).unwrap();
+        let from = DArraySelectIndex::<true>::from_bytes(bytes).unwrap();
         assert_eq!(idx, from);
     }
 
     #[test]
     fn test_builder_from_data() {
         let data = BitVectorData::from_bits([true, false, false, true]);
-        let idx_from_data = DArrayIndex::<true>::new(&data);
-        let idx_from_new = DArrayIndex::<true>::new(&data);
+        let idx_from_data = DArraySelectIndex::<true>::new(&data);
+        let idx_from_new = DArraySelectIndex::<true>::new(&data);
         assert_eq!(idx_from_data, idx_from_new);
     }
 }
