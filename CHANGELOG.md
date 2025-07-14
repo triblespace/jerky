@@ -15,8 +15,8 @@
 - Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
 - Fixed `scripts/preflight.sh` to install `rustfmt` when `cargo-fmt` is missing.
 - `Rank9Sel` now stores a `BitVector<Rank9SelIndex>` built via `BitVectorBuilder`.
-- Added `DArrayFullIndex` wrapping `DArrayIndex<true>` and `DArrayIndex<false>`
-  for unified 0/1 select queries.
+- Replaced `DArrayFullIndex` with new `DArrayIndex` that uses const generics
+  to optionally include `select1` and `select0` support.
 - Introduced `CompactVectorBuilder` mutable APIs `push_int`, `set_int`, and `extend`.
 - Added `freeze()` on `CompactVectorBuilder` yielding an immutable `CompactVector` backed by `BitVector<NoIndex>`.
 - `CompactVector::new` and `with_capacity` now return builders; other constructors build via the builder pattern.
@@ -24,7 +24,7 @@
   vectors, storing only immutable `BitVector` data after construction.
 - Removed obsolete `RawBitVector` type.
 - Removed the `Rank9Sel` wrapper; use `BitVector<Rank9SelIndex>` directly.
-- Removed the `DArray` wrapper; use `BitVector<darray::inner::DArrayFullIndex>` instead.
+- Removed the `DArray` wrapper; use `BitVector<darray::inner::DArrayIndex>` instead.
 - Removed the `Build` trait for bit vectors; construct indexes via `BitVectorBuilder` and `IndexBuilder`.
 - Removed index builders in favor of parameterized index types constructed with `build`.
 - Simplified benchmark code by importing index types and relying on type inference.
