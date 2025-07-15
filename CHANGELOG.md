@@ -28,3 +28,6 @@
 - Removed the `Build` trait for bit vectors; construct indexes via `BitVectorBuilder` and `IndexBuilder`.
 - Removed index builders in favor of parameterized index types constructed with `build`.
 - Simplified benchmark code by importing index types and relying on type inference.
+- Added `INVENTORY.md` for tracking pending work and ideas.
+- Clarified inventory instructions in `AGENTS.md`.
+- Removed the `## Completed Work` section from `INVENTORY.md`.
