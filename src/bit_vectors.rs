@@ -24,7 +24,6 @@
 //! | --- | :-: | :-: | :-: | :-: | :-: |
 //! | [`BitVector`] | $`O(1)`$  | $`O(u)`$ | $`O(u)`$ | $`O(1)`$ | $`u`$ |
 //! | [`BitVector<rank9sel::inner::Rank9SelIndex>`] | $`O(1)`$ | $`O(1)`$ | $`O(\lg u)`$ | -- | $`u + o(u)`$ |
-//! | [`BitVector<darray::inner::DArrayIndex>`] | $`O(1)`$ | $`O(1)`$ | $`O(1)`$ | -- | $`u + o(u)`$ |
 //!
 //! ## Plain bit vectors without index
 //!
@@ -35,16 +34,10 @@
 //!
 //! ## Plain bit vectors with index
 //!
-//! [`BitVector<rank9sel::inner::Rank9SelIndex>`] and [`BitVector<darray::inner::DArrayIndex>`] are index structures for faster queries built on [`BitVector`].
+//! [`BitVector<rank9sel::inner::Rank9SelIndex>`] is an index structure for faster queries built on [`BitVector`].
 //!
 //! [`BitVector<rank9sel::inner::Rank9SelIndex>`] is an implementation of Vigna's Rank9 and hinted selection techniques, supporting
 //! constant-time Rank and logarithmic-time Select queries.
-//!
-//! [`BitVector<darray::inner::DArrayIndex>`] implements the dense array technique of Okanohara and Sadakane.
-//! If you need only Select queries on dense sets (i.e., $`n/u \approx 0.5`$), this will be the most candidate.
-//! Rank/Predecessor/Successor queries are optionally enabled using the [`Rank9SelIndex`](rank9sel::inner::Rank9SelIndex) index.
-//! This structure outperforms [`BitVector<rank9sel::inner::Rank9SelIndex>`] in complexity, but the practical space overhead can be larger.
-//!
 //!
 //! # Examples
 //!
@@ -74,7 +67,6 @@
 //! # }
 //! ```
 pub mod bit_vector;
-pub mod darray;
 pub mod data;
 pub mod prelude;
 pub mod rank9sel;

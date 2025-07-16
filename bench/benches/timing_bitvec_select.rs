@@ -6,7 +6,6 @@ use rand_chacha::ChaChaRng;
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
-use jerky::bit_vectors::darray::inner::DArrayIndex;
 use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
 use jerky::bit_vectors::{BitVector, NoIndex, Select};
@@ -55,13 +54,6 @@ fn perform_bitvec_select(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], qu
         let mut builder = BitVectorBuilder::new();
         builder.extend_bits(bits.iter().cloned());
         let idx = builder.freeze::<Rank9SelIndex>();
-        b.iter(|| run_queries(&idx, &queries));
-    });
-
-    group.bench_function("jerky/BitVector<DArrayIndex>", |b| {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits(bits.iter().cloned());
-        let idx = builder.freeze::<DArrayIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });
 }
