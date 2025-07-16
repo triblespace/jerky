@@ -3,7 +3,6 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
-use jerky::bit_vectors::darray::inner::DArrayIndex;
 use jerky::bit_vectors::data::BitVectorBuilder;
 use jerky::bit_vectors::prelude::*;
 use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
@@ -97,11 +96,6 @@ fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVec
 
     group.bench_function("jerky/WaveletMatrix<Rank9SelIndex>", |b| {
         let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
-        b.iter(|| run_queries(&idx, &queries));
-    });
-
-    group.bench_function("jerky/WaveletMatrix<DArrayIndex>", |b| {
-        let idx = WaveletMatrix::<DArrayIndex>::new(text.clone()).unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }
