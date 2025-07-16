@@ -11,7 +11,6 @@
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
-- Index builders now provide `from_data` constructors operating on `BitVectorData`.
 - Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
 - Fixed `scripts/preflight.sh` to install `rustfmt` when `cargo-fmt` is missing.
 - `Rank9Sel` now stores a `BitVector<Rank9SelIndex>` built via `BitVectorBuilder`.

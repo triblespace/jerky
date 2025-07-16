@@ -36,11 +36,6 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndexBuilder<SELECT1, SEL
         Self::build_rank(data)
     }
 
-    /// Creates a builder from the given [`BitVectorData`].
-    pub fn from_data(data: &BitVectorData) -> Self {
-        Self::new(data)
-    }
-
     /// Builds an index for faster `select1` queries.
     pub fn select1_hints(self) -> Self {
         self.build_select1()
@@ -585,10 +580,10 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_from_data() {
+    fn test_builder_new_equivalence() {
         let data = BitVectorData::from_bits([true, false, true, false]);
-        let idx_from_data = Rank9SelIndex::<true, true>::new(&data);
-        let idx_from_new = Rank9SelIndex::<true, true>::new(&data);
-        assert_eq!(idx_from_data, idx_from_new);
+        let idx1 = Rank9SelIndex::<true, true>::new(&data);
+        let idx2 = Rank9SelIndex::<true, true>::new(&data);
+        assert_eq!(idx1, idx2);
     }
 }
