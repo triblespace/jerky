@@ -1,6 +1,6 @@
-use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use jerky::bit_vectors::BitVector;
+use jerky::bit_vector::bit_vector::BitVectorBuilder;
+use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+use jerky::bit_vector::BitVector;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
