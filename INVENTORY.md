@@ -14,3 +14,4 @@
 
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
+- Benchmarks still used the old `jerky::bit_vectors` path, breaking compilation.

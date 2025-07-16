@@ -1,6 +1,6 @@
-use jerky::bit_vectors::data::BitVectorBuilder;
-use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use jerky::bit_vectors::{BitVector, NoIndex, Rank};
+use jerky::bit_vector::bit_vector::BitVectorBuilder;
+use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+use jerky::bit_vector::{BitVector, NoIndex, Rank};
 use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
 

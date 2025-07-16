@@ -36,3 +36,4 @@
 - Unified bit vector implementation under `bit_vector.rs` and removed the
   redundant `data` module.
 - Renamed the `bit_vectors` module to `bit_vector` and updated imports.
+- Updated benchmarks to use `jerky::bit_vector` imports.
