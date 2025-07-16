@@ -47,7 +47,7 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use jerky::bit_vectors::{data::BitVectorBuilder, rank9sel::inner::Rank9SelIndex, BitVector, prelude::*};
+//! use jerky::bit_vector::{bit_vector::BitVectorBuilder, rank9sel::inner::Rank9SelIndex, BitVector, prelude::*};
 //!
 //! let mut builder = BitVectorBuilder::new();
 //! builder.extend_bits([true, false, false, true]);
@@ -67,11 +67,10 @@
 //! # }
 //! ```
 pub mod bit_vector;
-pub mod data;
 pub mod prelude;
 pub mod rank9sel;
 
-pub use data::{BitVector, BitVectorData, BitVectorIndex, NoIndex};
+pub use bit_vector::{BitVector, BitVectorData, BitVectorIndex, NoIndex};
 
 /// Interface for building a bit vector with rank/select queries.
 

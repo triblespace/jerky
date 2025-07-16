@@ -29,7 +29,7 @@
 //! The data structures provided in this crate are categorized as follows:
 //!
 //! - [Integer vectors](crate::int_vectors)
-//! - [Bit vectors](crate::bit_vectors)
+//! - [Bit vectors](crate::bit_vector)
 //! - [Character sequences](crate::char_sequences)
 //!
 //! The descriptions for each category are available in the corresponding module.
@@ -50,7 +50,7 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("`target_pointer_width` must be 64");
 
-pub mod bit_vectors;
+pub mod bit_vector;
 pub mod broadword;
 pub mod char_sequences;
 pub mod data;
@@ -58,7 +58,7 @@ pub mod int_vectors;
 mod intrinsics;
 pub mod utils;
 
-pub use bit_vectors::{BitVector, BitVectorData, BitVectorIndex, NoIndex};
+pub use bit_vector::{BitVector, BitVectorData, BitVectorIndex, NoIndex};
 pub use data::IntVectorData;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std

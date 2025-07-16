@@ -6,9 +6,9 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vectors::data::BitVectorBuilder;
-use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vectors::{self, BitVector, Rank};
+use crate::bit_vector::bit_vector::BitVectorBuilder;
+use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
+use crate::bit_vector::{self, BitVector, Rank};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 
@@ -232,7 +232,7 @@ impl Access for DacsByte {
         for j in 0..self.num_levels() {
             x |= usize::from(self.data[j][pos]) << (j * LEVEL_WIDTH);
             if j == self.num_levels() - 1
-                || !bit_vectors::Access::access(&self.flags[j], pos).unwrap()
+                || !bit_vector::Access::access(&self.flags[j], pos).unwrap()
             {
                 break;
             }
