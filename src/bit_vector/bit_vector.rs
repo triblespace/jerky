@@ -5,8 +5,10 @@
 //! reconstructed directly from [`anybytes::Bytes`] obtained via an mmap
 //! wrapper like `Bytes::from_source`.
 
-use crate::bit_vectors::bit_vector::WORD_LEN;
-use crate::bit_vectors::{Access, NumBits, Rank, Select};
+/// The number of bits in a machine word.
+pub const WORD_LEN: usize = core::mem::size_of::<usize>() * 8;
+
+use crate::bit_vector::{Access, NumBits, Rank, Select};
 use anybytes::{Bytes, View};
 use anyhow::{anyhow, Result};
 

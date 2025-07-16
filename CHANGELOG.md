@@ -31,3 +31,8 @@
 - Added `INVENTORY.md` for tracking pending work and ideas.
 - Clarified inventory instructions in `AGENTS.md`.
 - Removed the `## Completed Work` section from `INVENTORY.md`.
+- Consolidated module layout by moving `WORD_LEN` into `bit_vectors::data` and
+  adopting directory-based `mod.rs` files.
+- Unified bit vector implementation under `bit_vector.rs` and removed the
+  redundant `data` module.
+- Renamed the `bit_vectors` module to `bit_vector` and updated imports.

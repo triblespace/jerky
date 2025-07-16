@@ -21,7 +21,7 @@ impl IntVectorData {
     }
 
     /// Returns the number of integers stored.
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.ints.len()
     }
 }

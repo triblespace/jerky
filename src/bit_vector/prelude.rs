@@ -4,6 +4,6 @@
 //!
 //! ```
 //! # #![allow(unused_imports)]
-//! use jerky::bit_vectors::prelude::*;
+//! use jerky::bit_vector::prelude::*;
 //! ```
-pub use crate::bit_vectors::{Access, NumBits, Rank, Select};
+pub use crate::bit_vector::{Access, NumBits, Rank, Select};

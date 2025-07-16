@@ -2,7 +2,7 @@
 //!
 //! # Introduction
 //!
-//! *Character sequences* are a generalization of [`bit_vectors`](crate::bit_vectors),
+//! *Character sequences* are a generalization of [`bit_vectors`](crate::bit_vector),
 //! whose elements are drawn from an alphabet $`\Sigma = \{ 0,1,\dots,\sigma - 1 \}`$.
 //!
 //! Let $`(c_0, c_1, \dots, c_{n-1}) \in \Sigma^{n} `$ be a sequence of $`n`$ characters.
@@ -30,7 +30,7 @@
 //! In addition to the basic queires listed above, this provides several range queries
 //! such as [`quantile`](WaveletMatrix::quantile) or [`intersect`](WaveletMatrix::intersect).
 //!
-//! Its complexities are related to those of a [bit vector](crate::bit_vectors) used internally.
+//! Its complexities are related to those of a [bit vector](crate::bit_vector) used internally.
 //! For simplicity, the above table assumes constant-time and linear-space implementation.
 pub mod wavelet_matrix;
 

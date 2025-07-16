@@ -1,11 +1,11 @@
-//! Internal index structure for [`BitVector<Rank9SelIndex>`](crate::bit_vectors::BitVector).
+//! Internal index structure for [`BitVector<Rank9SelIndex>`](crate::bit_vector::BitVector).
 #![cfg(target_pointer_width = "64")]
 
 use anybytes::{Bytes, View};
 
 use anyhow::Result;
 
-use crate::bit_vectors::data::BitVectorData;
+use crate::bit_vector::bit_vector::BitVectorData;
 use crate::broadword;
 
 const BLOCK_LEN: usize = 8;
@@ -232,8 +232,8 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-    /// use jerky::bit_vectors::BitVectorData;
+    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::BitVectorData;
     ///
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<true, true>::new(&data);
@@ -278,8 +278,8 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-    /// use jerky::bit_vectors::BitVectorData;
+    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<true, true>::new(&data);
     /// assert_eq!(idx.rank0(&data, 2), Some(1));
@@ -310,8 +310,8 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-    /// use jerky::bit_vectors::BitVectorData;
+    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<true, false>::new(&data);
     ///
@@ -384,8 +384,8 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vectors::rank9sel::inner::Rank9SelIndex;
-    /// use jerky::bit_vectors::BitVectorData;
+    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<false, true>::new(&data);
     /// assert_eq!(idx.select0(&data, 0), Some(1));
@@ -535,7 +535,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     }
 }
 
-impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vectors::data::BitVectorIndex
+impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::bit_vector::BitVectorIndex
     for Rank9SelIndex<SELECT1, SELECT0>
 {
     fn build(data: &BitVectorData) -> Self {

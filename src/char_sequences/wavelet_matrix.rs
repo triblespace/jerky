@@ -6,9 +6,9 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vectors::data::{BitVectorBuilder, BitVectorIndex};
-use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vectors::{Access, BitVector, NumBits, Rank, Select};
+use crate::bit_vector::bit_vector::{BitVectorBuilder, BitVectorIndex};
+use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
+use crate::bit_vector::{Access, BitVector, NumBits, Rank, Select};
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 
@@ -24,7 +24,7 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+/// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
 /// use jerky::char_sequences::WaveletMatrix;
 /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
 ///
@@ -142,7 +142,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -192,7 +192,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -227,7 +227,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -283,7 +283,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -344,7 +344,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -412,7 +412,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -518,7 +518,7 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vectors::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
     /// use jerky::char_sequences::WaveletMatrix;
     /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
     ///
@@ -617,7 +617,7 @@ impl WaveletMatrix<Rank9SelIndex> {
 mod test {
     use super::*;
 
-    use crate::bit_vectors::rank9sel::inner::Rank9SelIndex;
+    use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
 
     #[test]
     fn test_empty_seq() {
