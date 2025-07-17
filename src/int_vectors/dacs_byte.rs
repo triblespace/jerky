@@ -11,6 +11,7 @@ use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
 use crate::bit_vector::{self, BitVector, Rank};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
+use anybytes::{Bytes, View};
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
@@ -18,7 +19,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 /// Compressed integer sequence using Directly Addressable Codes (DACs) in a simple bytewise scheme.
 ///
 /// DACs are a compact representation of an integer sequence consisting of many small values.
-/// [`DacsByte`] uses [`Vec<u8>`] for each level to obtain faster operations.
+/// [`DacsByte`] stores each level as a zero-copy [`View<[u8]>`] to avoid extra copying.
 ///
 /// # Memory complexity
 ///
@@ -53,7 +54,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 ///   codes." Information Processing & Management, 49(1), 392-404, 2013.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DacsByte {
-    data: Vec<Vec<u8>>,
+    data: Vec<View<[u8]>>,
     flags: Vec<BitVector<Rank9SelIndex>>,
 }
 
@@ -92,7 +93,7 @@ impl DacsByte {
                 .map(|x| u8::try_from(x.to_usize().unwrap()).unwrap())
                 .collect();
             return Ok(Self {
-                data: vec![data],
+                data: vec![Bytes::from_source(data).view::<[u8]>().unwrap()],
                 flags: vec![],
             });
         }
@@ -119,6 +120,10 @@ impl DacsByte {
         let flags = flags
             .into_iter()
             .map(|bvb| bvb.freeze::<Rank9SelIndex<true, true>>())
+            .collect();
+        let data = data
+            .into_iter()
+            .map(|v| Bytes::from_source(v).view::<[u8]>().unwrap())
             .collect();
         Ok(Self { data, flags })
     }
@@ -175,7 +180,7 @@ impl Default for DacsByte {
     fn default() -> Self {
         Self {
             // Needs a single level at least.
-            data: vec![vec![]],
+            data: vec![Bytes::empty().view::<[u8]>().unwrap()],
             flags: vec![],
         }
     }
@@ -296,19 +301,22 @@ impl DacsByte {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anybytes::Bytes;
 
     #[test]
     fn test_basic() {
         let seq = DacsByte::from_slice(&[0xFFFF, 0xFF, 0xF, 0xFFFFF, 0xF]).unwrap();
 
-        assert_eq!(
-            seq.data,
-            vec![
-                vec![0xFF, 0xFF, 0xF, 0xFF, 0xF],
-                vec![0xFF, 0xFF],
-                vec![0xF]
-            ]
-        );
+        let expected = vec![
+            Bytes::from_source(vec![0xFFu8, 0xFF, 0xF, 0xFF, 0xF])
+                .view::<[u8]>()
+                .unwrap(),
+            Bytes::from_source(vec![0xFFu8, 0xFF])
+                .view::<[u8]>()
+                .unwrap(),
+            Bytes::from_source(vec![0xFu8]).view::<[u8]>().unwrap(),
+        ];
+        assert_eq!(seq.data, expected);
 
         let mut b = BitVectorBuilder::new();
         b.extend_bits([true, false, false, true, false]);

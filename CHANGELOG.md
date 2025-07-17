@@ -8,6 +8,7 @@
 - Replaced the old `BitVector` with the generic `BitVector<I>` and renamed the
   mutable variant to `RawBitVector`.
 - Extended `BitVectorBuilder` with `push_bits` and `set_bit` APIs.
+- `DacsByte` now stores level data as zero-copy `View<[u8]>` values.
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
