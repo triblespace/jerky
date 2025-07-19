@@ -2,7 +2,7 @@
 //!
 //! # Introduction
 //!
-//! *Character sequences* are a generalization of [`bit_vectors`](crate::bit_vector),
+//! *Character sequences* are a generalization of [bit vectors](crate::bit_vector),
 //! whose elements are drawn from an alphabet $`\Sigma = \{ 0,1,\dots,\sigma - 1 \}`$.
 //!
 //! Let $`(c_0, c_1, \dots, c_{n-1}) \in \Sigma^{n} `$ be a sequence of $`n`$ characters.

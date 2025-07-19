@@ -40,3 +40,5 @@
 - Updated benchmarks to use `jerky::bit_vector` imports.
 - Removed the WaveletMatrix iterator caching TODO and inventory entry after
   benchmarking showed only a 3% performance gain.
+- Fixed a stale doc link referencing the old `bit_vectors` module.
+- Removed completed documentation cleanup tasks from `INVENTORY.md`.
