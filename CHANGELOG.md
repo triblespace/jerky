@@ -38,3 +38,5 @@
   redundant `data` module.
 - Renamed the `bit_vectors` module to `bit_vector` and updated imports.
 - Updated benchmarks to use `jerky::bit_vector` imports.
+- Removed the WaveletMatrix iterator caching TODO and inventory entry after
+  benchmarking showed only a 3% performance gain.

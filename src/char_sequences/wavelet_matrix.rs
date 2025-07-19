@@ -584,7 +584,6 @@ where
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO(kampersanda): Optimization with caching.
         if self.pos < self.wm.len() {
             let x = self.wm.access(self.pos).unwrap();
             self.pos += 1;
