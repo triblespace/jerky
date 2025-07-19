@@ -11,4 +11,3 @@
 
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
-- Fix typo "softwere" in `bench/README.md`.

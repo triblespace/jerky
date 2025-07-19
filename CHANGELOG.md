@@ -42,3 +42,4 @@
   benchmarking showed only a 3% performance gain.
 - Fixed a stale doc link referencing the old `bit_vectors` module.
 - Removed completed documentation cleanup tasks from `INVENTORY.md`.
+- Fixed a typo in `bench/README.md`.
