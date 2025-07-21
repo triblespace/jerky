@@ -52,7 +52,7 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 ///
 /// - N. R. Brisaboa, S. Ladra, and G. Navarro, "DACs: Bringing direct access to variable-length
 ///   codes." Information Processing & Management, 49(1), 392-404, 2013.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct DacsByte {
     data: Vec<View<[u8]>>,
     flags: Vec<BitVector<Rank9SelIndex>>,
@@ -149,6 +149,11 @@ impl DacsByte {
     /// ```
     pub const fn iter(&self) -> Iter {
         Iter::new(self)
+    }
+
+    /// Collects all integers into a `Vec<usize>` for inspection.
+    pub fn to_vec(&self) -> Vec<usize> {
+        self.iter().collect()
     }
 
     /// Gets the number of integers.
@@ -260,6 +265,16 @@ impl<'a> Iter<'a> {
     }
 }
 
+impl std::fmt::Debug for DacsByte {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DacsByte")
+            .field("ints", &self.to_vec())
+            .field("len", &self.len())
+            .field("num_levels", &self.num_levels())
+            .finish()
+    }
+}
+
 impl Iterator for Iter<'_> {
     type Item = usize;
 
@@ -358,6 +373,19 @@ mod tests {
         assert_eq!(seq.access(1), Some(0));
         assert_eq!(seq.access(2), Some(0));
         assert_eq!(seq.access(3), Some(0));
+    }
+
+    #[test]
+    fn iter_collects() {
+        let seq = DacsByte::from_slice(&[5, 7]).unwrap();
+        let collected: Vec<usize> = seq.iter().collect();
+        assert_eq!(collected, vec![5, 7]);
+    }
+
+    #[test]
+    fn to_vec_collects() {
+        let seq = DacsByte::from_slice(&[5, 7]).unwrap();
+        assert_eq!(seq.to_vec(), vec![5, 7]);
     }
 
     #[test]

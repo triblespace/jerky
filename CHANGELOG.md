@@ -43,3 +43,5 @@
 - Fixed a stale doc link referencing the old `bit_vectors` module.
 - Removed completed documentation cleanup tasks from `INVENTORY.md`.
 - Fixed a typo in `bench/README.md`.
+- Added iterators and `to_vec` helpers for inspecting built vectors.
+- Split inspection tests so each assertion stands alone.
