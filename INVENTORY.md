@@ -4,7 +4,6 @@
 - None at the moment.
 
 ## Desired Functionality
-- Expose utilities for inspecting and debugging built vectors.
 - Provide more usage examples and documentation.
 - Evaluate additional succinct data structures to include.
 - Investigate alternative dense-select index strategies to replace removed `DArrayIndex`.

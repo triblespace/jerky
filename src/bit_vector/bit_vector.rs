@@ -322,6 +322,37 @@ pub struct BitVector<I> {
     pub index: I,
 }
 
+/// Iterator over bits in a [`BitVector`].
+pub struct Iter<'a, I> {
+    bv: &'a BitVector<I>,
+    pos: usize,
+}
+
+impl<'a, I> Iter<'a, I> {
+    /// Creates a new iterator.
+    pub const fn new(bv: &'a BitVector<I>) -> Self {
+        Self { bv, pos: 0 }
+    }
+}
+
+impl<I> Iterator for Iter<'_, I> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.bv.len() {
+            let bit = self.bv.access(self.pos).unwrap();
+            self.pos += 1;
+            Some(bit)
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.bv.len(), Some(self.bv.len()))
+    }
+}
+
 impl<I> BitVector<I> {
     /// Creates a new wrapper from data and index.
     pub const fn new(data: BitVectorData, index: I) -> Self {
@@ -336,6 +367,16 @@ impl<I> BitVector<I> {
     /// Returns the `len` bits starting at `pos`, or [`None`] if out of bounds.
     pub fn get_bits(&self, pos: usize, len: usize) -> Option<usize> {
         self.data.get_bits(pos, len)
+    }
+
+    /// Creates an iterator over all bits.
+    pub const fn iter(&self) -> Iter<I> {
+        Iter { bv: self, pos: 0 }
+    }
+
+    /// Collects all bits into a `Vec<bool>` for inspection.
+    pub fn to_vec(&self) -> Vec<bool> {
+        self.iter().collect()
     }
 }
 
@@ -432,5 +473,20 @@ mod tests {
         builder.push_bits(0b011111, 6).unwrap();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
         assert_eq!(bv.data.get_bits(61, 7).unwrap(), 0b0111110);
+    }
+
+    #[test]
+    fn iter_collects() {
+        let data = BitVectorData::from_bits([true, false, true]);
+        let bv = BitVector::new(data, NoIndex);
+        let collected: Vec<bool> = bv.iter().collect();
+        assert_eq!(collected, vec![true, false, true]);
+    }
+
+    #[test]
+    fn to_vec_collects() {
+        let data = BitVectorData::from_bits([true, false, true]);
+        let bv = BitVector::new(data, NoIndex);
+        assert_eq!(bv.to_vec(), vec![true, false, true]);
     }
 }

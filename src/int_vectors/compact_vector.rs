@@ -384,6 +384,11 @@ impl CompactVector {
         Iter::new(self)
     }
 
+    /// Collects all integers into a `Vec<usize>` for inspection.
+    pub fn to_vec(&self) -> Vec<usize> {
+        self.iter().collect()
+    }
+
     /// Gets the number of integers.
     #[inline(always)]
     pub const fn len(&self) -> usize {
@@ -644,5 +649,18 @@ mod tests {
     fn test_64b_from_int() {
         let cv = CompactVector::from_int(42, 1, 64).unwrap();
         assert_eq!(cv.get_int(0), Some(42));
+    }
+
+    #[test]
+    fn iter_collects() {
+        let cv = CompactVector::from_slice(&[1, 2, 3]).unwrap();
+        let collected: Vec<usize> = cv.iter().collect();
+        assert_eq!(collected, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn to_vec_collects() {
+        let cv = CompactVector::from_slice(&[1, 2, 3]).unwrap();
+        assert_eq!(cv.to_vec(), vec![1, 2, 3]);
     }
 }
