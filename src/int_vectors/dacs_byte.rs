@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vector::{self, BitVector, BitVectorBuilder, Rank, Rank9SelIndex};
+use crate::bit_vector::{self, BitVector, BitVectorBuilder, BitVectorIndex, Rank, Rank9SelIndex};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 use anybytes::{Bytes, View};
@@ -18,6 +18,9 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 ///
 /// DACs are a compact representation of an integer sequence consisting of many small values.
 /// [`DacsByte`] stores each level as a zero-copy [`View<[u8]>`] to avoid extra copying.
+/// The generic parameter `I` chooses the [`BitVectorIndex`](crate::bit_vector::BitVectorIndex)
+/// used for the internal flag vectors. It defaults to [`Rank9SelIndex`], so most
+/// code can omit the parameter.
 ///
 /// # Memory complexity
 ///
@@ -33,7 +36,8 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use jerky::int_vectors::{DacsByte, Access};
 ///
-/// let seq = DacsByte::from_slice(&[5, 0, 100000, 334])?;
+/// use jerky::bit_vector::rank9sel::Rank9SelIndex;
+/// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334])?;
 ///
 /// assert_eq!(seq.access(0), Some(5));
 /// assert_eq!(seq.access(1), Some(0));
@@ -51,12 +55,12 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 /// - N. R. Brisaboa, S. Ladra, and G. Navarro, "DACs: Bringing direct access to variable-length
 ///   codes." Information Processing & Management, 49(1), 392-404, 2013.
 #[derive(Clone, PartialEq, Eq)]
-pub struct DacsByte {
+pub struct DacsByte<I = Rank9SelIndex> {
     data: Vec<View<[u8]>>,
-    flags: Vec<BitVector<Rank9SelIndex>>,
+    flags: Vec<BitVector<I>>,
 }
 
-impl DacsByte {
+impl<I: BitVectorIndex> DacsByte<I> {
     /// Builds DACs by assigning 8 bits to represent each level.
     ///
     /// # Arguments
@@ -115,10 +119,7 @@ impl DacsByte {
             }
         }
 
-        let flags = flags
-            .into_iter()
-            .map(|bvb| bvb.freeze::<Rank9SelIndex<true, true>>())
-            .collect();
+        let flags = flags.into_iter().map(|bvb| bvb.freeze::<I>()).collect();
         let data = data
             .into_iter()
             .map(|v| Bytes::from_source(v).view::<[u8]>().unwrap())
@@ -132,9 +133,10 @@ impl DacsByte {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::bit_vector::rank9sel::Rank9SelIndex;
     /// use jerky::int_vectors::DacsByte;
     ///
-    /// let seq = DacsByte::from_slice(&[5, 0, 100000, 334])?;
+    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334])?;
     /// let mut it = seq.iter();
     ///
     /// assert_eq!(it.next(), Some(5));
@@ -145,7 +147,7 @@ impl DacsByte {
     /// # Ok(())
     /// # }
     /// ```
-    pub const fn iter(&self) -> Iter {
+    pub const fn iter(&self) -> Iter<I> {
         Iter::new(self)
     }
 
@@ -179,7 +181,7 @@ impl DacsByte {
     }
 }
 
-impl Default for DacsByte {
+impl<I: BitVectorIndex> Default for DacsByte<I> {
     fn default() -> Self {
         Self {
             // Needs a single level at least.
@@ -189,7 +191,7 @@ impl Default for DacsByte {
     }
 }
 
-impl Build for DacsByte {
+impl<I: BitVectorIndex> Build for DacsByte<I> {
     /// Creates a new vector from a slice of integers `vals`.
     ///
     /// This just calls [`Self::from_slice()`]. See the documentation.
@@ -202,14 +204,14 @@ impl Build for DacsByte {
     }
 }
 
-impl NumVals for DacsByte {
+impl<I: BitVectorIndex> NumVals for DacsByte<I> {
     /// Returns the number of integers stored (just wrapping [`Self::len()`]).
     fn num_vals(&self) -> usize {
         self.len()
     }
 }
 
-impl Access for DacsByte {
+impl<I: BitVectorIndex> Access for DacsByte<I> {
     /// Returns the `pos`-th integer, or [`None`] if out of bounds.
     ///
     /// # Complexity
@@ -221,9 +223,10 @@ impl Access for DacsByte {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::bit_vector::rank9sel::Rank9SelIndex;
     /// use jerky::int_vectors::{DacsByte, Access};
     ///
-    /// let seq = DacsByte::from_slice(&[5, 999, 334])?;
+    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 999, 334])?;
     ///
     /// assert_eq!(seq.access(0), Some(5));
     /// assert_eq!(seq.access(1), Some(999));
@@ -251,19 +254,19 @@ impl Access for DacsByte {
 }
 
 /// Iterator for enumerating integers, created by [`DacsByte::iter()`].
-pub struct Iter<'a> {
-    seq: &'a DacsByte,
+pub struct Iter<'a, I> {
+    seq: &'a DacsByte<I>,
     pos: usize,
 }
 
-impl<'a> Iter<'a> {
+impl<'a, I> Iter<'a, I> {
     /// Creates a new iterator.
-    pub const fn new(seq: &'a DacsByte) -> Self {
+    pub const fn new(seq: &'a DacsByte<I>) -> Self {
         Self { seq, pos: 0 }
     }
 }
 
-impl std::fmt::Debug for DacsByte {
+impl<I: BitVectorIndex> std::fmt::Debug for DacsByte<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DacsByte")
             .field("ints", &self.to_vec())
@@ -273,7 +276,7 @@ impl std::fmt::Debug for DacsByte {
     }
 }
 
-impl Iterator for Iter<'_> {
+impl<I: BitVectorIndex> Iterator for Iter<'_, I> {
     type Item = usize;
 
     #[inline(always)]
@@ -300,7 +303,8 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let seq = DacsByte::from_slice(&[0xFFFF, 0xFF, 0xF, 0xFFFFF, 0xF]).unwrap();
+        let seq =
+            DacsByte::<Rank9SelIndex>::from_slice(&[0xFFFF, 0xFF, 0xF, 0xFFFFF, 0xF]).unwrap();
 
         let expected = vec![
             Bytes::from_source(vec![0xFFu8, 0xFF, 0xF, 0xFF, 0xF])
@@ -335,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let seq = DacsByte::from_slice::<usize>(&[]).unwrap();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice::<usize>(&[]).unwrap();
         assert!(seq.is_empty());
         assert_eq!(seq.len(), 0);
         assert_eq!(seq.num_levels(), 1);
@@ -344,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros() {
-        let seq = DacsByte::from_slice(&[0, 0, 0, 0]).unwrap();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[0, 0, 0, 0]).unwrap();
         assert!(!seq.is_empty());
         assert_eq!(seq.len(), 4);
         assert_eq!(seq.num_levels(), 1);
@@ -357,20 +361,20 @@ mod tests {
 
     #[test]
     fn iter_collects() {
-        let seq = DacsByte::from_slice(&[5, 7]).unwrap();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7]).unwrap();
         let collected: Vec<usize> = seq.iter().collect();
         assert_eq!(collected, vec![5, 7]);
     }
 
     #[test]
     fn to_vec_collects() {
-        let seq = DacsByte::from_slice(&[5, 7]).unwrap();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7]).unwrap();
         assert_eq!(seq.to_vec(), vec![5, 7]);
     }
 
     #[test]
     fn test_from_slice_uncastable() {
-        let e = DacsByte::from_slice(&[u128::MAX]);
+        let e = DacsByte::<Rank9SelIndex>::from_slice(&[u128::MAX]);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("vals must consist only of values castable into usize.".to_string())

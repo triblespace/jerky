@@ -37,7 +37,10 @@
 //! ## Compressed format with Directly Addressable Codes
 //!
 //! [`DacsByte`] is a compressed data structure using Directly Addressable Codes (DACs),
-//! a randomly-accessible variant of the VByte encoding scheme.
+//! a randomly-accessible variant of the VByte encoding scheme. `DacsByte<I>` lets
+//! you choose the [`BitVectorIndex`](crate::bit_vector::BitVectorIndex) type `I`
+//! for its internal flag vectors. The default is
+//! [`Rank9SelIndex`](crate::bit_vector::rank9sel::Rank9SelIndex).
 //!
 //! Let
 //!
@@ -56,9 +59,10 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use jerky::bit_vector::rank9sel::Rank9SelIndex;
 //! use jerky::int_vectors::{DacsByte, prelude::*};
 //!
-//! let seq = DacsByte::build_from_slice(&[5, 0, 100000, 334])?;
+//! let seq = DacsByte::<Rank9SelIndex>::build_from_slice(&[5, 0, 100000, 334])?;
 //!
 //! assert_eq!(seq.num_vals(), 4);
 //!
