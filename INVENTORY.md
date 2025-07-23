@@ -5,7 +5,6 @@
 
 ## Desired Functionality
 - Provide more usage examples and documentation.
-- Add usage example demonstrating `CompactVector` construction and retrieval.
 - Evaluate additional succinct data structures to include.
 - Investigate alternative dense-select index strategies to replace removed `DArrayIndex`.
 
