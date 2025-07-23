@@ -510,13 +510,6 @@ impl std::fmt::Debug for CompactVector {
     }
 }
 
-impl CompactVector {
-    /// Returns the number of bytes required for the old copy-based serialization.
-    pub fn size_in_bytes(&self) -> usize {
-        self.chunks.data.size_in_bytes() + std::mem::size_of::<usize>() * 2
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

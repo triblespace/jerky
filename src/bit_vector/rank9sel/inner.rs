@@ -516,23 +516,6 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
         }
         Bytes::from_source(store)
     }
-
-    /// Returns the number of bytes required for the old copy-based serialization.
-    pub fn size_in_bytes(&self) -> usize {
-        let mut mem = std::mem::size_of::<usize>() * 2;
-        mem += std::mem::size_of::<usize>() * self.block_rank_pairs.len();
-        mem += std::mem::size_of::<bool>();
-        if let Some(hints) = &self.select1_hints {
-            mem += std::mem::size_of::<usize>();
-            mem += std::mem::size_of::<usize>() * hints.len();
-        }
-        mem += std::mem::size_of::<bool>();
-        if let Some(hints) = &self.select0_hints {
-            mem += std::mem::size_of::<usize>();
-            mem += std::mem::size_of::<usize>() * hints.len();
-        }
-        mem
-    }
 }
 
 impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::BitVectorIndex

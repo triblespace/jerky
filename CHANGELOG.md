@@ -11,6 +11,7 @@
 - Added `from_bit` constructor on `BitVectorBuilder` for repeating a single bit.
 - `DacsByte` now stores level data as zero-copy `View<[u8]>` values.
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
+- Removed deprecated `size_in_bytes` helpers.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
   verification workflows.
 - Simplified CI workflow to run `scripts/preflight.sh` on pull requests.
