@@ -32,7 +32,8 @@ byte region to `Bytes::from_source`.
 
 ## Examples
 
-See the [examples](examples/) directory for runnable usage demos.
+See the [examples](examples/) directory for runnable usage demos, including
+`bit_vector`, `wavelet_matrix`, and `compact_vector`.
 
 ## Licensing
 

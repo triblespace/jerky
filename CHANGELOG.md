@@ -51,3 +51,4 @@
 - Split inspection tests so each assertion stands alone.
 - Documented `WaveletMatrix` usage in `README.md`.
 - Moved README usage examples to runnable files in `examples/`.
+- Added `compact_vector` example showing construction and retrieval.
