@@ -49,3 +49,5 @@
 - Fixed a typo in `bench/README.md`.
 - Added iterators and `to_vec` helpers for inspecting built vectors.
 - Split inspection tests so each assertion stands alone.
+- Documented `WaveletMatrix` usage in `README.md`.
+- Moved README usage examples to runnable files in `examples/`.
