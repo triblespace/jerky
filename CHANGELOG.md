@@ -18,7 +18,10 @@
 - Replaced `DArrayFullIndex` with new `DArrayIndex` that uses const generics
   to optionally include `select1` and `select0` support.
 - Introduced `CompactVectorBuilder` mutable APIs `push_int`, `set_int`, and `extend`.
+- Simplified bit vector imports by re-exporting `BitVectorBuilder` and `Rank9SelIndex` and updating examples.
+- Moved the `bit_vector::bit_vector` module contents directly into `bit_vector` for cleaner paths.
 - Added README usage example demonstrating basic bit vector operations.
+- Removed `bit_vector::prelude`; import traits directly with `use jerky::bit_vector::*`.
 - Added `freeze()` on `CompactVectorBuilder` yielding an immutable `CompactVector` backed by `BitVector<NoIndex>`.
 - `CompactVector::new` and `with_capacity` now return builders; other constructors build via the builder pattern.
 - Wavelet matrix and DACs builders now use `BitVectorBuilder` for temporary bit

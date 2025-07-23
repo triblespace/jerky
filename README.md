@@ -36,7 +36,7 @@ The snippet below shows how to build a bit vector with a rank/select index and
 perform a few basic queries:
 
 ```rust
-use jerky::bit_vector::{bit_vector::BitVectorBuilder, rank9sel::inner::Rank9SelIndex, prelude::*};
+use jerky::bit_vector::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = BitVectorBuilder::new();

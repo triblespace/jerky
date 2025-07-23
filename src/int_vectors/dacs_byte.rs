@@ -6,9 +6,7 @@ use std::convert::TryFrom;
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vector::bit_vector::BitVectorBuilder;
-use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vector::{self, BitVector, Rank};
+use crate::bit_vector::{self, BitVector, BitVectorBuilder, Rank, Rank9SelIndex};
 use crate::int_vectors::{Access, Build, NumVals};
 use crate::utils;
 use anybytes::{Bytes, View};
