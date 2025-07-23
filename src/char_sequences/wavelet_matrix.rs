@@ -7,7 +7,7 @@ use std::ops::Range;
 use anyhow::{anyhow, Result};
 
 use crate::bit_vector::{
-    Access, BitVector, BitVectorBuilder, BitVectorIndex, NumBits, Rank, Rank9SelIndex, Select,
+    Access, BitVector, BitVectorBuilder, BitVectorIndex, NumBits, Rank, Select,
 };
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
@@ -596,19 +596,6 @@ where
     #[inline(always)]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.wm.len(), Some(self.wm.len()))
-    }
-}
-
-impl WaveletMatrix<Rank9SelIndex> {
-    /// Returns the number of bytes required for the old copy-based serialization.
-    pub fn size_in_bytes(&self) -> usize {
-        std::mem::size_of::<usize>()
-            + self
-                .layers
-                .iter()
-                .map(|l| l.data.size_in_bytes() + l.index.size_in_bytes())
-                .sum::<usize>()
-            + std::mem::size_of::<usize>()
     }
 }
 

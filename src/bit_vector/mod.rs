@@ -311,11 +311,6 @@ impl BitVectorData {
         Some(bits)
     }
 
-    /// Returns the number of bytes required for the old copy-based serialization.
-    pub fn size_in_bytes(&self) -> usize {
-        std::mem::size_of::<usize>() * (self.words.len() + 2)
-    }
-
     /// Serializes the data into a [`Bytes`] buffer.
     pub fn to_bytes(&self) -> (usize, Bytes) {
         (self.len, self.words.clone().bytes())

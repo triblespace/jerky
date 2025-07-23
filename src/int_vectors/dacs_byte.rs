@@ -293,24 +293,6 @@ impl Iterator for Iter<'_> {
     }
 }
 
-impl DacsByte {
-    /// Returns the number of bytes required for the old copy-based serialization.
-    pub fn size_in_bytes(&self) -> usize {
-        std::mem::size_of::<usize>()
-            + self
-                .data
-                .iter()
-                .map(|v| std::mem::size_of::<usize>() + v.len())
-                .sum::<usize>()
-            + std::mem::size_of::<usize>()
-            + self
-                .flags
-                .iter()
-                .map(|f| f.data.size_in_bytes() + f.index.size_in_bytes())
-                .sum::<usize>()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
