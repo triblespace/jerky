@@ -138,6 +138,22 @@ impl BitVectorBuilder {
         Self::default()
     }
 
+    /// Creates a builder that stores `len` copies of `bit`.
+    pub fn from_bit(bit: bool, len: usize) -> Self {
+        if len == 0 {
+            return Self::default();
+        }
+        let word = if bit { usize::MAX } else { 0 };
+        let num_words = (len + WORD_LEN - 1) / WORD_LEN;
+        let mut words = vec![word; num_words];
+        let shift = len % WORD_LEN;
+        if shift != 0 {
+            let mask = (1 << shift) - 1;
+            *words.last_mut().unwrap() &= mask;
+        }
+        Self { words, len }
+    }
+
     /// Pushes a single bit.
     pub fn push_bit(&mut self, bit: bool) {
         let pos_in_word = self.len % WORD_LEN;
@@ -588,6 +604,14 @@ mod tests {
         builder.push_bits(0b011111, 6).unwrap();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
         assert_eq!(bv.data.get_bits(61, 7).unwrap(), 0b0111110);
+    }
+
+    #[test]
+    fn builder_from_bit() {
+        let builder = BitVectorBuilder::from_bit(true, 5);
+        let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
+        assert_eq!(bv.len(), 5);
+        assert_eq!(bv.num_ones(), 5);
     }
 
     #[test]
