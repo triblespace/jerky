@@ -30,25 +30,9 @@ is backed by `anybytes::View`. The data can be serialized with
 allowing zero-copy loading from an mmap or any other source by passing the
 byte region to `Bytes::from_source`.
 
-## Usage example
+## Examples
 
-The snippet below shows how to build a bit vector with a rank/select index and
-perform a few basic queries:
-
-```rust
-use jerky::bit_vector::*;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = BitVectorBuilder::new();
-    builder.extend_bits([true, false, true, false, true]);
-    let bv = builder.freeze::<Rank9SelIndex>();
-
-    assert_eq!(bv.num_bits(), 5);
-    assert_eq!(bv.rank1(4), Some(2));
-    assert_eq!(bv.select1(1), Some(2));
-    Ok(())
-}
-```
+See the [examples](examples/) directory for runnable usage demos.
 
 ## Licensing
 
