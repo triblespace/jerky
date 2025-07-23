@@ -6,9 +6,9 @@ use std::ops::Range;
 
 use anyhow::{anyhow, Result};
 
-use crate::bit_vector::bit_vector::{BitVectorBuilder, BitVectorIndex};
-use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
-use crate::bit_vector::{Access, BitVector, NumBits, Rank, Select};
+use crate::bit_vector::{
+    Access, BitVector, BitVectorBuilder, BitVectorIndex, NumBits, Rank, Rank9SelIndex, Select,
+};
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
 

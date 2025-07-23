@@ -7,9 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
-use jerky::bit_vector::bit_vector::BitVectorBuilder;
-use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
-use jerky::bit_vector::{BitVector, NoIndex, Rank};
+use jerky::bit_vector::{BitVector, BitVectorBuilder, NoIndex, Rank, Rank9SelIndex};
 
 const SAMPLE_SIZE: usize = 30;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);

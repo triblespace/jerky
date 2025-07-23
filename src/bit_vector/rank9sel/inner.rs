@@ -5,7 +5,7 @@ use anybytes::{Bytes, View};
 
 use anyhow::Result;
 
-use crate::bit_vector::bit_vector::BitVectorData;
+use crate::bit_vector::BitVectorData;
 use crate::broadword;
 
 const BLOCK_LEN: usize = 8;
@@ -232,7 +232,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::bit_vector::BitVectorData;
     ///
     /// let data = BitVectorData::from_bits([true, false, false, true]);
@@ -278,7 +278,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<true, true>::new(&data);
@@ -310,7 +310,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<true, false>::new(&data);
@@ -384,7 +384,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// # Examples
     ///
     /// ```
-    /// use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::bit_vector::BitVectorData;
     /// let data = BitVectorData::from_bits([true, false, false, true]);
     /// let idx = Rank9SelIndex::<false, true>::new(&data);
@@ -535,7 +535,7 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     }
 }
 
-impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::bit_vector::BitVectorIndex
+impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::BitVectorIndex
     for Rank9SelIndex<SELECT1, SELECT0>
 {
     fn build(data: &BitVectorData) -> Self {

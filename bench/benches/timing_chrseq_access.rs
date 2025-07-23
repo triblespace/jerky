@@ -3,10 +3,7 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
-use jerky::bit_vector::bit_vector::BitVectorBuilder;
-use jerky::bit_vector::prelude::*;
-use jerky::bit_vector::rank9sel::inner::Rank9SelIndex;
-use jerky::bit_vector::{BitVector, NoIndex};
+use jerky::bit_vector::*;
 use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
 
