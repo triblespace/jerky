@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Added `CompactVector::to_bytes` and `from_bytes` for zero-copy serialization.
 - Made `DacsByte` generic over its flag index type with a default of `Rank9SelIndex`.
 - `DacsByte::from_slice` now accepts a generic index type, removing `from_slice_with_index`.
 - Added `BitVectorBuilder` and zero-copy `BitVectorData` backed by `anybytes::View`.
