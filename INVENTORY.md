@@ -10,6 +10,7 @@
 - Explore additional index implementations leveraging the new generic `DacsByte<I>`.
 - Demonstrate the generic `from_slice` usage in examples and docs.
 - Provide serialization helpers for additional structures beyond `WaveletMatrix`.
+- Show `CompactVector::to_bytes` and `from_bytes` in examples.
 
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.

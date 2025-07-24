@@ -33,7 +33,16 @@ fn show_memories(title: &str, text: &CompactVector) {
 
     let bytes = {
         let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
-        idx.size_in_bytes()
+        let layer_bytes: usize = idx
+            .layers
+            .iter()
+            .map(|bv| {
+                let (_, data) = bv.data.to_bytes();
+                let index = bv.index.to_bytes();
+                data.as_ref().len() + index.as_ref().len()
+            })
+            .sum();
+        layer_bytes + std::mem::size_of::<usize>()
     };
     print_memory("WaveletMatrix<Rank9SelIndex>", bytes, text.len());
 }

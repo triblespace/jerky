@@ -29,6 +29,9 @@ is backed by `anybytes::View`. The data can be serialized with
 `BitVectorData::to_bytes` and reconstructed using `BitVectorData::from_bytes`,
 allowing zero-copy loading from an mmap or any other source by passing the
 byte region to `Bytes::from_source`.
+`CompactVector` offers similar helpers: `CompactVector::to_bytes` returns a
+metadata struct along with the raw bytes, and `CompactVector::from_bytes`
+reconstructs the vector from that information.
 
 `WaveletMatrix` sequences share this layout and can be serialized with
 `WaveletMatrix::to_bytes` (returning metadata and bytes) and reconstructed

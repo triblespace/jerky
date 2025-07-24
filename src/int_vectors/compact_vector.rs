@@ -5,9 +5,10 @@ use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vector::BitVectorBuilder;
-use crate::bit_vector::{BitVector, NoIndex};
+use crate::bit_vector::{BitVector, BitVectorData, NoIndex};
 use crate::int_vectors::prelude::*;
 use crate::utils;
+use anybytes::Bytes;
 
 /// Mutable builder for [`CompactVector`].
 ///
@@ -182,6 +183,16 @@ impl Default for CompactVector {
             width: 0,
         }
     }
+}
+
+/// Metadata returned by [`CompactVector::to_bytes`] and required by
+/// [`CompactVector::from_bytes`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompactVectorMeta {
+    /// Number of integers stored.
+    pub len: usize,
+    /// Bit width for each integer.
+    pub width: usize,
 }
 
 impl CompactVector {
@@ -410,6 +421,30 @@ impl CompactVector {
     #[inline(always)]
     pub const fn width(&self) -> usize {
         self.width
+    }
+
+    /// Serializes the vector into a [`Bytes`] buffer and accompanying metadata.
+    pub fn to_bytes(&self) -> (CompactVectorMeta, Bytes) {
+        let (_, bytes) = self.chunks.data.to_bytes();
+        (
+            CompactVectorMeta {
+                len: self.len,
+                width: self.width,
+            },
+            bytes,
+        )
+    }
+
+    /// Reconstructs the vector from zero-copy [`Bytes`] and its metadata.
+    pub fn from_bytes(meta: CompactVectorMeta, bytes: Bytes) -> Result<Self> {
+        let data_len = meta.len * meta.width;
+        let data = BitVectorData::from_bytes(data_len, bytes)?;
+        let chunks = BitVector::new(data, NoIndex);
+        Ok(Self {
+            chunks,
+            len: meta.len,
+            width: meta.width,
+        })
     }
 }
 
@@ -655,5 +690,13 @@ mod tests {
     fn to_vec_collects() {
         let cv = CompactVector::from_slice(&[1, 2, 3]).unwrap();
         assert_eq!(cv.to_vec(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn from_bytes_roundtrip() {
+        let cv = CompactVector::from_slice(&[4, 5, 6]).unwrap();
+        let (meta, bytes) = cv.to_bytes();
+        let other = CompactVector::from_bytes(meta, bytes).unwrap();
+        assert_eq!(cv, other);
     }
 }
