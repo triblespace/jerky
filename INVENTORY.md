@@ -9,6 +9,7 @@
 - Investigate alternative dense-select index strategies to replace removed `DArrayIndex`.
 - Explore additional index implementations leveraging the new generic `DacsByte<I>`.
 - Demonstrate the generic `from_slice` usage in examples and docs.
+- Provide serialization helpers for additional structures beyond `WaveletMatrix`.
 
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.

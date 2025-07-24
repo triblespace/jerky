@@ -4,10 +4,12 @@
 
 use std::ops::Range;
 
+use anybytes::Bytes;
 use anyhow::{anyhow, Result};
 
 use crate::bit_vector::{
-    Access, BitVector, BitVectorBuilder, BitVectorIndex, NumBits, Rank, Select,
+    Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorIndex, NumBits, Rank, Select,
+    WORD_LEN,
 };
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
@@ -58,6 +60,17 @@ use crate::utils;
 pub struct WaveletMatrix<I> {
     layers: Vec<BitVector<I>>,
     alph_size: usize,
+}
+
+/// Metadata describing the serialized form of a [`WaveletMatrix`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WaveletMatrixMeta {
+    /// Maximum value + 1 stored in the matrix.
+    pub alph_size: usize,
+    /// Number of bit vector layers in the matrix.
+    pub alph_width: usize,
+    /// Number of integers stored.
+    pub len: usize,
 }
 
 impl<I> WaveletMatrix<I>
@@ -561,6 +574,41 @@ where
     pub fn alph_width(&self) -> usize {
         self.layers.len()
     }
+
+    /// Serializes the sequence into a [`Bytes`] buffer along with its metadata.
+    pub fn to_bytes(&self) -> (WaveletMatrixMeta, Bytes) {
+        let mut store: Vec<usize> = Vec::new();
+        for layer in &self.layers {
+            store.extend_from_slice(layer.data.words());
+        }
+        let meta = WaveletMatrixMeta {
+            alph_size: self.alph_size,
+            alph_width: self.alph_width(),
+            len: self.len(),
+        };
+        (meta, Bytes::from_source(store))
+    }
+
+    /// Reconstructs the sequence from metadata and a zero-copy [`Bytes`] buffer.
+    pub fn from_bytes(meta: WaveletMatrixMeta, mut bytes: Bytes) -> Result<Self> {
+        let mut layers = Vec::with_capacity(meta.alph_width);
+        let num_words = (meta.len + WORD_LEN - 1) / WORD_LEN;
+        for _ in 0..meta.alph_width {
+            let words = bytes
+                .view_prefix_with_elems::<[usize]>(num_words)
+                .map_err(|e| anyhow!(e))?;
+            let data = BitVectorData {
+                words,
+                len: meta.len,
+            };
+            let index = I::build(&data);
+            layers.push(BitVector::new(data, index));
+        }
+        Ok(Self {
+            layers,
+            alph_size: meta.alph_size,
+        })
+    }
 }
 
 /// Iterator for enumerating integers, created by [`WaveletMatrix::iter()`].
@@ -640,5 +688,17 @@ mod test {
 
         let ranges = vec![0..3, 3..6];
         assert_eq!(wm.intersect(&ranges, 1), Some(vec!['o' as usize]));
+    }
+
+    #[test]
+    fn from_bytes_roundtrip() {
+        let mut builder = CompactVectorBuilder::new(8).unwrap();
+        builder
+            .extend("banana".chars().map(|c| c as usize))
+            .unwrap();
+        let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze()).unwrap();
+        let (meta, bytes) = wm.to_bytes();
+        let other = WaveletMatrix::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
+        assert_eq!(wm, other);
     }
 }
