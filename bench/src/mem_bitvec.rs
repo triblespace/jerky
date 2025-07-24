@@ -24,7 +24,9 @@ fn show_memories(p: f64) {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
         let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
-        idx.data.size_in_bytes() + idx.index.size_in_bytes()
+        let (len, data) = idx.data.to_bytes();
+        let index = idx.index.to_bytes();
+        data.as_ref().len() + index.as_ref().len() + std::mem::size_of_val(&len)
     };
     print_memory("BitVector<Rank9SelIndex>", bytes);
 
@@ -32,7 +34,9 @@ fn show_memories(p: f64) {
         let mut b = BitVectorBuilder::new();
         b.extend_bits(bits.iter().cloned());
         let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
-        idx.data.size_in_bytes() + idx.index.size_in_bytes()
+        let (len, data) = idx.data.to_bytes();
+        let index = idx.index.to_bytes();
+        data.as_ref().len() + index.as_ref().len() + std::mem::size_of_val(&len)
     };
     print_memory("BitVector<Rank9SelIndex> (with select hints)", bytes);
 }
