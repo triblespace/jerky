@@ -33,6 +33,22 @@ byte region to `Bytes::from_source`.
 metadata struct along with the raw bytes, and `CompactVector::from_bytes`
 reconstructs the vector from that information.
 
+`WaveletMatrix` sequences share this layout and can be serialized with
+`WaveletMatrix::to_bytes` (returning metadata and bytes) and reconstructed
+using `WaveletMatrix::from_bytes`.
+
+The byte buffer returned by `to_bytes` stores each bit-vector layer
+contiguously. Given `num_words = ceil(len / WORD_LEN)`, the layout is:
+
+```
+bytes:
++------------+------------+-----+
+| layer 0    | layer 1    | ... |
+| num_words  | num_words  |     |
++------------+------------+-----+
+```
+where each segment contains `num_words` consecutive `usize` words for a layer.
+
 ## Examples
 
 See the [examples](examples/) directory for runnable usage demos, including
