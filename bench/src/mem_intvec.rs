@@ -36,13 +36,24 @@ fn show_memories(title: &str, vals: &[u32]) {
 
     let bytes = {
         let idx = jerky::int_vectors::CompactVector::from_slice(vals).unwrap();
-        idx.size_in_bytes()
+        let (meta, bytes) = idx.to_bytes();
+        std::mem::size_of_val(&meta) + bytes.as_ref().len()
     };
     print_memory("CompactVector", bytes, vals.len());
 
     let bytes = {
         let idx = jerky::int_vectors::DacsByte::from_slice(vals).unwrap();
-        idx.size_in_bytes()
+        let data_bytes: usize = idx.data.iter().map(|lvl| lvl.as_ref().len()).sum();
+        let flags_bytes: usize = idx
+            .flags
+            .iter()
+            .map(|bv| {
+                let (_, data) = bv.data.to_bytes();
+                let index = bv.index.to_bytes();
+                data.as_ref().len() + index.as_ref().len()
+            })
+            .sum();
+        data_bytes + flags_bytes
     };
     print_memory("DacsByte", bytes, vals.len());
 }

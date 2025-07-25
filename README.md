@@ -29,6 +29,7 @@ is backed by `anybytes::View`. The data can be serialized with
 `BitVectorData::to_bytes` and reconstructed using `BitVectorData::from_bytes`,
 allowing zero-copy loading from an mmap or any other source by passing the
 byte region to `Bytes::from_source`.
+
 `DacsByte` sequences support a similar interface with `to_bytes` returning
 metadata alongside the byte slice and `from_bytes` rebuilding the sequence
 using that metadata.
@@ -41,6 +42,26 @@ Bytes layout from `DacsByte::to_bytes`:
 The flag vectors come first and store native-endian `usize` words. The level
 data immediately follows without any padding.
 ```
+
+`CompactVector` offers similar helpers: `CompactVector::to_bytes` returns a
+metadata struct along with the raw bytes, and `CompactVector::from_bytes`
+reconstructs the vector from that information.
+
+`WaveletMatrix` sequences share this layout and can be serialized with
+`WaveletMatrix::to_bytes` (returning metadata and bytes) and reconstructed
+using `WaveletMatrix::from_bytes`.
+
+The byte buffer returned by `to_bytes` stores each bit-vector layer
+contiguously. Given `num_words = ceil(len / WORD_LEN)`, the layout is:
+
+```
+bytes:
++------------+------------+-----+
+| layer 0    | layer 1    | ... |
+| num_words  | num_words  |     |
++------------+------------+-----+
+```
+where each segment contains `num_words` consecutive `usize` words for a layer.
 
 ## Examples
 
