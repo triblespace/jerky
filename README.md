@@ -29,6 +29,18 @@ is backed by `anybytes::View`. The data can be serialized with
 `BitVectorData::to_bytes` and reconstructed using `BitVectorData::from_bytes`,
 allowing zero-copy loading from an mmap or any other source by passing the
 byte region to `Bytes::from_source`.
+`DacsByte` sequences support a similar interface with `to_bytes` returning
+metadata alongside the byte slice and `from_bytes` rebuilding the sequence
+using that metadata.
+
+```text
+Bytes layout from `DacsByte::to_bytes`:
+
+| flag[0] words | flag[1] words | ... | flag[n-2] words | level[0] data | level[1] data | ... | level[n-1] data |
+
+The flag vectors come first and store native-endian `usize` words. The level
+data immediately follows without any padding.
+```
 
 ## Examples
 
