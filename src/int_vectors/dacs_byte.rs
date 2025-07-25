@@ -58,6 +58,7 @@ const MAX_LEVELS: usize = (usize::BITS as usize + LEVEL_WIDTH - 1) / LEVEL_WIDTH
 ///   codes." Information Processing & Management, 49(1), 392-404, 2013.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DacsByte<I = Rank9SelIndex> {
+    bytes: Bytes,
     data: Vec<View<[u8]>>,
     flags: Vec<BitVector<I>>,
 }
@@ -131,41 +132,96 @@ impl<I: BitVectorIndex> DacsByte<I> {
         assert_ne!(num_levels, 0);
 
         if num_levels == 1 {
-            let data: Vec<_> = vals
+            let buf: Vec<u8> = vals
                 .iter()
                 .map(|x| u8::try_from(x.to_usize().unwrap()).unwrap())
                 .collect();
+            let bytes = Bytes::from_source(buf);
+            let data = vec![bytes.clone().view::<[u8]>().unwrap()];
             return Ok(Self {
-                data: vec![Bytes::from_source(data).view::<[u8]>().unwrap()],
+                bytes,
+                data,
                 flags: vec![],
             });
         }
 
-        let mut data = vec![vec![]; num_levels];
-        let mut flags = vec![BitVectorBuilder::new(); num_levels - 1];
+        let mut level_data = vec![vec![]; num_levels];
+        let mut flag_builders = vec![BitVectorBuilder::new(); num_levels - 1];
 
         for x in vals {
             let mut x = x.to_usize().unwrap();
             for j in 0..num_levels {
-                data[j].push(u8::try_from(x & LEVEL_MASK).unwrap());
+                level_data[j].push(u8::try_from(x & LEVEL_MASK).unwrap());
                 x >>= LEVEL_WIDTH;
                 if j == num_levels - 1 {
                     assert_eq!(x, 0);
                     break;
                 } else if x == 0 {
-                    flags[j].push_bit(false);
+                    flag_builders[j].push_bit(false);
                     break;
                 }
-                flags[j].push_bit(true);
+                flag_builders[j].push_bit(true);
             }
         }
 
-        let flags = flags.into_iter().map(|bvb| bvb.freeze::<I>()).collect();
-        let data = data
-            .into_iter()
-            .map(|v| Bytes::from_source(v).view::<[u8]>().unwrap())
-            .collect();
-        Ok(Self { data, flags })
+        use std::mem::size_of;
+
+        let usize_size = size_of::<usize>();
+        let mut flag_bytes = Vec::new();
+        let mut flag_info = Vec::with_capacity(flag_builders.len());
+        for b in flag_builders.into_iter() {
+            let (len_bits, bytes) = b.into_bytes();
+            let num_words = bytes.as_ref().len() / usize_size;
+            flag_info.push((len_bits, num_words));
+            flag_bytes.push(bytes);
+        }
+
+        let level_lens: Vec<usize> = level_data.iter().map(|v| v.len()).collect();
+
+        let total_flags: usize = flag_info.iter().map(|(_, w)| w * usize_size).sum();
+        let total_levels: usize = level_lens.iter().sum();
+        let mut buf = Vec::with_capacity(total_flags + total_levels);
+        let mut flag_offsets = Vec::with_capacity(flag_bytes.len());
+        for bytes in &flag_bytes {
+            flag_offsets.push(buf.len());
+            buf.extend_from_slice(bytes.as_ref());
+        }
+        let mut level_offsets = Vec::with_capacity(level_data.len());
+        for level in &level_data {
+            level_offsets.push(buf.len());
+            buf.extend_from_slice(level);
+        }
+
+        let bytes = Bytes::from_source(buf);
+        let mut flags = Vec::with_capacity(flag_offsets.len());
+        for ((len_bits, num_words), offset) in flag_info.into_iter().zip(flag_offsets) {
+            let start = offset;
+            let end = start + num_words * usize_size;
+            let words_view = bytes
+                .slice_to_bytes(&bytes.as_ref()[start..end])
+                .ok_or_else(|| anyhow!("invalid slice"))?
+                .view::<[usize]>()
+                .map_err(|e| anyhow!(e))?;
+            let data = bit_vector::BitVectorData {
+                words: words_view,
+                len: len_bits,
+            };
+            let index = I::build(&data);
+            flags.push(bit_vector::BitVector { data, index });
+        }
+
+        let mut data = Vec::with_capacity(level_offsets.len());
+        for (offset, len) in level_offsets.into_iter().zip(level_lens) {
+            let start = offset;
+            let end = start + len;
+            let view_bytes = bytes
+                .slice_to_bytes(&bytes.as_ref()[start..end])
+                .ok_or_else(|| anyhow!("invalid slice"))?;
+            let view = view_bytes.view::<[u8]>().map_err(|e| anyhow!(e))?;
+            data.push(view);
+        }
+
+        Ok(Self { bytes, data, flags })
     }
 
     /// Creates an iterator for enumerating integers.
@@ -235,24 +291,13 @@ impl<I: BitVectorIndex> DacsByte<I> {
             })
             .collect::<Vec<_>>();
 
-        let mut buf: Vec<u8> = Vec::new();
-        for flag in &self.flags {
-            for &word in flag.data.words.as_ref() {
-                buf.extend_from_slice(&word.to_ne_bytes());
-            }
-        }
-
-        for level in &self.data {
-            buf.extend_from_slice(level.as_ref());
-        }
-
         (
             DacsByteMeta {
                 num_levels: self.data.len(),
                 level_lens,
                 flag_meta,
             },
-            Bytes::from_source(buf),
+            self.bytes.clone(),
         )
     }
 
@@ -307,7 +352,7 @@ impl<I: BitVectorIndex> DacsByte<I> {
             cursor += len;
         }
 
-        Ok(Self { data, flags })
+        Ok(Self { bytes, data, flags })
     }
 }
 
@@ -315,6 +360,7 @@ impl<I: BitVectorIndex> Default for DacsByte<I> {
     fn default() -> Self {
         Self {
             // Needs a single level at least.
+            bytes: Bytes::empty(),
             data: vec![Bytes::empty().view::<[u8]>().unwrap()],
             flags: vec![],
         }
