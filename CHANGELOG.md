@@ -62,3 +62,4 @@
 - Documented `WaveletMatrix` usage in `README.md`.
 - Moved README usage examples to runnable files in `examples/`.
 - Added `compact_vector` example showing construction and retrieval.
+- WaveletMatrix now stores its serialized word buffer for zero-copy access and preallocates building memory.
