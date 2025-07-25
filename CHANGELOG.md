@@ -8,6 +8,7 @@
 - `DacsByte::from_slice` now accepts a generic index type, removing `from_slice_with_index`.
 - Added `BitVectorBuilder` and zero-copy `BitVectorData` backed by `anybytes::View`.
 - Introduced `IndexBuilder` trait with a `Built` type and adjusted serialization helpers.
+- `Rank9SelIndex` now stores its serialized bytes internally and `to_bytes` returns this buffer.
 - Rename crate to `succdisk` to reflect on-disk succinct data structures.
 - Rename crate from `succdisk` to `jerky`.
 - Replaced the old `BitVector` with the generic `BitVector<I>` and renamed the
