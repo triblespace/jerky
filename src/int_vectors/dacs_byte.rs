@@ -13,6 +13,8 @@ use anybytes::{Bytes, View};
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
+/// Maximum possible number of levels for a [`usize`] value.
+const MAX_LEVELS: usize = (usize::BITS as usize + LEVEL_WIDTH - 1) / LEVEL_WIDTH;
 
 /// Compressed integer sequence using Directly Addressable Codes (DACs) in a simple bytewise scheme.
 ///
@@ -58,6 +60,45 @@ const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
 pub struct DacsByte<I = Rank9SelIndex> {
     data: Vec<View<[u8]>>,
     flags: Vec<BitVector<I>>,
+}
+
+/// Metadata required to reconstruct a `DacsByte` from bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DacsByteMeta {
+    /// Number of valid levels stored.
+    pub num_levels: usize,
+    /// Byte length for each level in order.
+    pub level_lens: Vec<usize>,
+    /// Metadata for each flag bit vector between levels.
+    pub flag_meta: Vec<FlagMeta>,
+}
+
+/// Metadata describing a flag bit vector stored inside a `DacsByte`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlagMeta {
+    /// Number of bits stored in the bit vector.
+    pub len_bits: usize,
+    /// Number of machine words used to hold the bits.
+    pub num_words: usize,
+}
+
+impl Default for FlagMeta {
+    fn default() -> Self {
+        Self {
+            len_bits: 0,
+            num_words: 0,
+        }
+    }
+}
+
+impl Default for DacsByteMeta {
+    fn default() -> Self {
+        Self {
+            num_levels: 0,
+            level_lens: Vec::new(),
+            flag_meta: Vec::new(),
+        }
+    }
 }
 
 impl<I: BitVectorIndex> DacsByte<I> {
@@ -178,6 +219,95 @@ impl<I: BitVectorIndex> DacsByte<I> {
     #[inline(always)]
     pub fn widths(&self) -> Vec<usize> {
         self.data.iter().map(|_| LEVEL_WIDTH).collect()
+    }
+
+    /// Serializes the sequence into a [`Bytes`] buffer.
+    ///
+    /// Returns the metadata necessary for [`from_bytes`].
+    pub fn to_bytes(&self) -> (DacsByteMeta, Bytes) {
+        let level_lens = self.data.iter().map(|v| v.len()).collect::<Vec<_>>();
+        let flag_meta = self
+            .flags
+            .iter()
+            .map(|f| FlagMeta {
+                len_bits: f.data.len,
+                num_words: f.data.num_words(),
+            })
+            .collect::<Vec<_>>();
+
+        let mut buf: Vec<u8> = Vec::new();
+        for flag in &self.flags {
+            for &word in flag.data.words.as_ref() {
+                buf.extend_from_slice(&word.to_ne_bytes());
+            }
+        }
+
+        for level in &self.data {
+            buf.extend_from_slice(level.as_ref());
+        }
+
+        (
+            DacsByteMeta {
+                num_levels: self.data.len(),
+                level_lens,
+                flag_meta,
+            },
+            Bytes::from_source(buf),
+        )
+    }
+
+    /// Reconstructs the sequence from zero-copy [`Bytes`].
+    ///
+    /// The `meta` argument should come from [`to_bytes`].
+    pub fn from_bytes(meta: DacsByteMeta, bytes: Bytes) -> Result<Self> {
+        use std::mem::size_of;
+
+        let usize_size = size_of::<usize>();
+        let mut cursor = 0;
+        let slice = bytes.as_ref();
+
+        if meta.num_levels == 0
+            || meta.num_levels > MAX_LEVELS
+            || meta.level_lens.len() != meta.num_levels
+            || meta.flag_meta.len() != meta.num_levels.saturating_sub(1)
+        {
+            return Err(anyhow!("invalid metadata"));
+        }
+
+        let mut flags = Vec::with_capacity(meta.flag_meta.len());
+        for fm in &meta.flag_meta {
+            let bytes_len = fm.num_words * usize_size;
+            if cursor + bytes_len > slice.len() {
+                return Err(anyhow!("insufficient bytes"));
+            }
+            let words_view = bytes
+                .slice_to_bytes(&slice[cursor..cursor + bytes_len])
+                .ok_or_else(|| anyhow!("invalid slice"))?
+                .view::<[usize]>()
+                .map_err(|e| anyhow!(e))?;
+            cursor += bytes_len;
+            let data = bit_vector::BitVectorData {
+                words: words_view,
+                len: fm.len_bits,
+            };
+            let index = I::build(&data);
+            flags.push(bit_vector::BitVector { data, index });
+        }
+
+        let mut data = Vec::with_capacity(meta.num_levels);
+        for &len in &meta.level_lens {
+            if cursor + len > slice.len() {
+                return Err(anyhow!("insufficient bytes"));
+            }
+            let view_bytes = bytes
+                .slice_to_bytes(&slice[cursor..cursor + len])
+                .ok_or_else(|| anyhow!("invalid slice"))?;
+            let view = view_bytes.view::<[u8]>().map_err(|e| anyhow!(e))?;
+            data.push(view);
+            cursor += len;
+        }
+
+        Ok(Self { data, flags })
     }
 }
 
@@ -370,6 +500,14 @@ mod tests {
     fn to_vec_collects() {
         let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7]).unwrap();
         assert_eq!(seq.to_vec(), vec![5, 7]);
+    }
+
+    #[test]
+    fn bytes_roundtrip() {
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334]).unwrap();
+        let (meta, bytes) = seq.to_bytes();
+        let other = DacsByte::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
+        assert_eq!(seq, other);
     }
 
     #[test]

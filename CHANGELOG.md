@@ -15,6 +15,9 @@
 - Extended `BitVectorBuilder` with `push_bits` and `set_bit` APIs.
 - Added `from_bit` constructor on `BitVectorBuilder` for repeating a single bit.
 - `DacsByte` now stores level data as zero-copy `View<[u8]>` values.
+- Added `to_bytes` and `from_bytes` on `DacsByte` for zero-copy serialization.
+- Documented the byte layout produced by `DacsByte::to_bytes` with ASCII art.
+- Flags are serialized before level data to eliminate padding.
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
 - Removed deprecated `size_in_bytes` helpers.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
