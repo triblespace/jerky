@@ -19,7 +19,7 @@ rust-version = "1.61.0"
 [dependencies]
 anyhow = "1.0"
 num-traits = "0.2.15"
-anybytes = { version = "0.19", features = ["zerocopy"] }
+anybytes = { git = "https://github.com/triblespace/anybytes", features = ["zerocopy"] }
 zerocopy = "0.8"
 
 [features]
