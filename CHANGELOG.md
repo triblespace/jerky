@@ -18,6 +18,8 @@
 - `DacsByte` now stores level data as zero-copy `View<[u8]>` values.
 - Added `to_bytes` and `from_bytes` on `DacsByte` for zero-copy serialization.
 - Documented the byte layout produced by `DacsByte::to_bytes` with ASCII art.
+- Switched `anybytes` dependency to track the upstream Git repository for the
+  latest changes.
 - Flags are serialized before level data to eliminate padding.
 - `DacsByte` stores all flags and levels in one contiguous byte buffer and `to_bytes` simply clones this buffer.
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
