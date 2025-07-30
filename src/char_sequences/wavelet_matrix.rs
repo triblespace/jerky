@@ -8,7 +8,8 @@ use anybytes::Bytes;
 use anyhow::{anyhow, Result};
 
 use crate::bit_vector::{
-    Access, BitVector, BitVectorData, BitVectorIndex, NumBits, Rank, Select, WORD_LEN,
+    Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorIndex, NumBits, Rank, Select,
+    WORD_LEN,
 };
 use crate::int_vectors::{CompactVector, CompactVectorBuilder};
 use crate::utils;
@@ -55,21 +56,10 @@ use crate::utils;
 /// # References
 ///
 /// - F. Claude, and G. Navarro, "The Wavelet Matrix," In SPIRE 2012.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct WaveletMatrix<I> {
     layers: Vec<BitVector<I>>,
     alph_size: usize,
-    bytes: Bytes,
-}
-
-impl<I> Default for WaveletMatrix<I> {
-    fn default() -> Self {
-        Self {
-            layers: Vec::new(),
-            alph_size: 0,
-            bytes: Bytes::empty(),
-        }
-    }
 }
 
 /// Metadata describing the serialized form of a [`WaveletMatrix`].
@@ -99,79 +89,55 @@ where
             return Err(anyhow!("seq must not be empty."));
         }
 
-        let len = seq.len();
         let alph_size = seq.iter().max().unwrap() + 1;
         let alph_width = utils::needed_bits(alph_size);
-        let num_words = (len + WORD_LEN - 1) / WORD_LEN;
-
-        let mut store = vec![0usize; alph_width * num_words];
 
         let mut zeros = seq;
         let mut ones = CompactVector::new(alph_width)?.freeze();
+        let mut layers = vec![];
 
         for depth in 0..alph_width {
             let mut next_zeros = CompactVectorBuilder::new(alph_width).unwrap();
             let mut next_ones = CompactVectorBuilder::new(alph_width).unwrap();
-            let layer = &mut store[depth * num_words..(depth + 1) * num_words];
-            let mut pos = 0;
-            Self::filter_into(
+            let mut bv = BitVectorBuilder::new();
+            Self::filter(
                 &zeros,
                 alph_width - depth - 1,
                 &mut next_zeros,
                 &mut next_ones,
-                layer,
-                &mut pos,
+                &mut bv,
             );
-            Self::filter_into(
+            Self::filter(
                 &ones,
                 alph_width - depth - 1,
                 &mut next_zeros,
                 &mut next_ones,
-                layer,
-                &mut pos,
+                &mut bv,
             );
             zeros = next_zeros.freeze();
             ones = next_ones.freeze();
+            let bits = bv.freeze::<I>();
+            layers.push(bits);
         }
 
-        let bytes = Bytes::from_source(store);
-        let mut layer_bytes = bytes.clone();
-        let mut layers = Vec::with_capacity(alph_width);
-        for _ in 0..alph_width {
-            let words = layer_bytes
-                .view_prefix_with_elems::<[usize]>(num_words)
-                .map_err(|e| anyhow!(e))?;
-            let data = BitVectorData { words, len };
-            let index = I::build(&data);
-            layers.push(BitVector::new(data, index));
-        }
-
-        Ok(Self {
-            layers,
-            alph_size,
-            bytes,
-        })
+        Ok(Self { layers, alph_size })
     }
 
-    fn filter_into(
+    fn filter(
         seq: &CompactVector,
         shift: usize,
         next_zeros: &mut CompactVectorBuilder,
         next_ones: &mut CompactVectorBuilder,
-        layer: &mut [usize],
-        pos: &mut usize,
+        bv: &mut BitVectorBuilder,
     ) {
         for val in seq.iter() {
             let bit = ((val >> shift) & 1) == 1;
+            bv.push_bit(bit);
             if bit {
-                let idx = *pos / WORD_LEN;
-                let sh = *pos % WORD_LEN;
-                layer[idx] |= 1usize << sh;
                 next_ones.push_int(val).unwrap();
             } else {
                 next_zeros.push_int(val).unwrap();
             }
-            *pos += 1;
         }
     }
 
@@ -611,21 +577,24 @@ where
 
     /// Serializes the sequence into a [`Bytes`] buffer along with its metadata.
     pub fn to_bytes(&self) -> (WaveletMatrixMeta, Bytes) {
+        let mut store: Vec<usize> = Vec::new();
+        for layer in &self.layers {
+            store.extend_from_slice(layer.data.words());
+        }
         let meta = WaveletMatrixMeta {
             alph_size: self.alph_size,
             alph_width: self.alph_width(),
             len: self.len(),
         };
-        (meta, self.bytes.clone())
+        (meta, Bytes::from_source(store))
     }
 
     /// Reconstructs the sequence from metadata and a zero-copy [`Bytes`] buffer.
-    pub fn from_bytes(meta: WaveletMatrixMeta, bytes: Bytes) -> Result<Self> {
+    pub fn from_bytes(meta: WaveletMatrixMeta, mut bytes: Bytes) -> Result<Self> {
         let mut layers = Vec::with_capacity(meta.alph_width);
         let num_words = (meta.len + WORD_LEN - 1) / WORD_LEN;
-        let mut slice = bytes.clone();
         for _ in 0..meta.alph_width {
-            let words = slice
+            let words = bytes
                 .view_prefix_with_elems::<[usize]>(num_words)
                 .map_err(|e| anyhow!(e))?;
             let data = BitVectorData {
@@ -638,7 +607,6 @@ where
         Ok(Self {
             layers,
             alph_size: meta.alph_size,
-            bytes,
         })
     }
 }

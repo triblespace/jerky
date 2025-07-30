@@ -8,7 +8,6 @@
 - `DacsByte::from_slice` now accepts a generic index type, removing `from_slice_with_index`.
 - Added `BitVectorBuilder` and zero-copy `BitVectorData` backed by `anybytes::View`.
 - Introduced `IndexBuilder` trait with a `Built` type and adjusted serialization helpers.
-- `Rank9SelIndex` now stores its serialized bytes internally and `to_bytes` returns this buffer.
 - Rename crate to `succdisk` to reflect on-disk succinct data structures.
 - Rename crate from `succdisk` to `jerky`.
 - Replaced the old `BitVector` with the generic `BitVector<I>` and renamed the
@@ -20,8 +19,9 @@
 - Documented the byte layout produced by `DacsByte::to_bytes` with ASCII art.
 - Switched `anybytes` dependency to track the upstream Git repository for the
   latest changes.
+- Removed internal byte buffers from data structures; `WaveletMatrix`,
+  `DacsByte`, and `Rank9SelIndex` no longer store a `Bytes` field.
 - Flags are serialized before level data to eliminate padding.
-- `DacsByte` stores all flags and levels in one contiguous byte buffer and `to_bytes` simply clones this buffer.
 - Added `get_bits` methods to `BitVectorData` and `BitVector`.
 - Removed deprecated `size_in_bytes` helpers.
 - Added `scripts/devtest.sh` and `scripts/preflight.sh` for testing and
@@ -66,4 +66,3 @@
 - Documented `WaveletMatrix` usage in `README.md`.
 - Moved README usage examples to runnable files in `examples/`.
 - Added `compact_vector` example showing construction and retrieval.
-- WaveletMatrix now stores its serialized word buffer for zero-copy access and preallocates building memory.

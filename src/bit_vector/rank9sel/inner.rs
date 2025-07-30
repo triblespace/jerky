@@ -15,7 +15,6 @@ const SELECT_ZEROS_PER_HINT: usize = SELECT_ONES_PER_HINT;
 /// The index implementation separated from the bit vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9SelIndex<const SELECT1: bool = true, const SELECT0: bool = true> {
-    bytes: Bytes,
     len: usize,
     block_rank_pairs: View<[usize]>,
     select1_hints: Option<View<[usize]>>,
@@ -49,43 +48,16 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndexBuilder<SELECT1, SEL
 
     /// Freezes and returns [`Rank9SelIndex`].
     pub fn build(self) -> Rank9SelIndex<SELECT1, SELECT0> {
-        let mut store = Vec::new();
-        store.push(self.len);
-        store.push(self.block_rank_pairs.len());
-        store.extend_from_slice(&self.block_rank_pairs);
-
-        if SELECT1 {
-            let hints = self.select1_hints.unwrap_or_default();
-            store.push(hints.len());
-            store.extend_from_slice(&hints);
-        }
-
-        if SELECT0 {
-            let hints = self.select0_hints.unwrap_or_default();
-            store.push(hints.len());
-            store.extend_from_slice(&hints);
-        }
-
-        let bytes = Bytes::from_source(store);
-        let mut parser = bytes.clone();
-        let _len = *parser.view_prefix::<usize>().unwrap();
-        let brp_len = *parser.view_prefix::<usize>().unwrap();
-        let block_rank_pairs = parser.view_prefix_with_elems::<[usize]>(brp_len).unwrap();
-        let select1_hints = if SELECT1 {
-            let l = *parser.view_prefix::<usize>().unwrap();
-            Some(parser.view_prefix_with_elems::<[usize]>(l).unwrap())
-        } else {
-            None
-        };
-        let select0_hints = if SELECT0 {
-            let l = *parser.view_prefix::<usize>().unwrap();
-            Some(parser.view_prefix_with_elems::<[usize]>(l).unwrap())
-        } else {
-            None
-        };
-
+        let block_rank_pairs = Bytes::from_source(self.block_rank_pairs)
+            .view::<[usize]>()
+            .unwrap();
+        let select1_hints = self
+            .select1_hints
+            .map(|v| Bytes::from_source(v).view::<[usize]>().unwrap());
+        let select0_hints = self
+            .select0_hints
+            .map(|v| Bytes::from_source(v).view::<[usize]>().unwrap());
         Rank9SelIndex::<SELECT1, SELECT0> {
-            bytes,
             len: self.len,
             block_rank_pairs,
             select1_hints,
@@ -469,46 +441,52 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
 
 impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// Reconstructs the index from zero-copy [`Bytes`].
-    pub fn from_bytes(bytes: Bytes) -> Result<Self> {
-        let mut parser = bytes.clone();
-        let len = *parser
+    pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
+        let len = *bytes
             .view_prefix::<usize>()
             .map_err(|e| anyhow::anyhow!(e))?;
-        let brp_len = *parser
+        let brp_len = *bytes
             .view_prefix::<usize>()
             .map_err(|e| anyhow::anyhow!(e))?;
-        let block_rank_pairs = parser
+        let block_rank_pairs = bytes
             .view_prefix_with_elems::<[usize]>(brp_len)
             .map_err(|e| anyhow::anyhow!(e))?;
-        let select1_hints = if SELECT1 {
-            let l = *parser
+        let has_select1 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let select1_hints = if has_select1 {
+            let l = *bytes
                 .view_prefix::<usize>()
                 .map_err(|e| anyhow::anyhow!(e))?;
             Some(
-                parser
+                bytes
                     .view_prefix_with_elems::<[usize]>(l)
                     .map_err(|e| anyhow::anyhow!(e))?,
             )
         } else {
             None
         };
-        let select0_hints = if SELECT0 {
-            let l = *parser
+        let has_select0 = *bytes
+            .view_prefix::<usize>()
+            .map_err(|e| anyhow::anyhow!(e))?
+            != 0;
+        let select0_hints = if has_select0 {
+            let l = *bytes
                 .view_prefix::<usize>()
                 .map_err(|e| anyhow::anyhow!(e))?;
             Some(
-                parser
+                bytes
                     .view_prefix_with_elems::<[usize]>(l)
                     .map_err(|e| anyhow::anyhow!(e))?,
             )
         } else {
             None
         };
-        if !parser.as_ref().is_empty() {
-            return Err(anyhow::anyhow!("extra bytes"));
+        if has_select1 != SELECT1 || has_select0 != SELECT0 {
+            return Err(anyhow::anyhow!("mismatched hint flags"));
         }
         Ok(Self {
-            bytes,
             len,
             block_rank_pairs,
             select1_hints,
@@ -518,7 +496,25 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
 
     /// Serializes the index metadata and data into a [`Bytes`] buffer.
     pub fn to_bytes(&self) -> Bytes {
-        self.bytes.clone()
+        let mut store: Vec<usize> = Vec::new();
+        store.push(self.len);
+        store.push(self.block_rank_pairs.len());
+        store.extend_from_slice(self.block_rank_pairs.as_ref());
+        if let Some(ref v) = self.select1_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        if let Some(ref v) = self.select0_hints {
+            store.push(1);
+            store.push(v.len());
+            store.extend_from_slice(v.as_ref());
+        } else {
+            store.push(0);
+        }
+        Bytes::from_source(store)
     }
 }
 

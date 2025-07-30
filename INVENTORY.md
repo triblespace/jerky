@@ -15,3 +15,4 @@
 
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
+- Revisit zero-copy storage strategy: avoid extra copies when storing serialized bytes in structures.
