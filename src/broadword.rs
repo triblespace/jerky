@@ -5,39 +5,39 @@
 #[cfg(feature = "intrinsics")]
 use crate::intrinsics;
 
-pub(crate) const ONES_STEP_4: usize = 0x1111111111111111;
-pub(crate) const ONES_STEP_8: usize = 0x0101010101010101;
-pub(crate) const ONES_STEP_9: usize =
+pub(crate) const ONES_STEP_4: u64 = 0x1111111111111111;
+pub(crate) const ONES_STEP_8: u64 = 0x0101010101010101;
+pub(crate) const ONES_STEP_9: u64 =
     (1 << 0) | (1 << 9) | (1 << 18) | (1 << 27) | (1 << 36) | (1 << 45) | (1 << 54);
-pub(crate) const MSBS_STEP_8: usize = 0x80 * ONES_STEP_8;
-pub(crate) const MSBS_STEP_9: usize = 0x100 * ONES_STEP_9;
-pub(crate) const INV_COUNT_STEP_9: usize =
+pub(crate) const MSBS_STEP_8: u64 = 0x80 * ONES_STEP_8;
+pub(crate) const MSBS_STEP_9: u64 = 0x100 * ONES_STEP_9;
+pub(crate) const INV_COUNT_STEP_9: u64 =
     (1 << 54) | (2 << 45) | (3 << 36) | (4 << 27) | (5 << 18) | (6 << 9) | 7;
 
 #[inline(always)]
-pub(crate) const fn leq_step_8(x: usize, y: usize) -> usize {
+pub(crate) const fn leq_step_8(x: u64, y: u64) -> u64 {
     ((((y | MSBS_STEP_8) - (x & !MSBS_STEP_8)) ^ (x ^ y)) & MSBS_STEP_8) >> 7
 }
 
 #[inline(always)]
-pub(crate) const fn uleq_step_8(x: usize, y: usize) -> usize {
+pub(crate) const fn uleq_step_8(x: u64, y: u64) -> u64 {
     (((((y | MSBS_STEP_8) - (x & !MSBS_STEP_8)) ^ (x ^ y)) ^ (x & !y)) & MSBS_STEP_8) >> 7
 }
 
 #[inline(always)]
-pub(crate) const fn uleq_step_9(x: usize, y: usize) -> usize {
+pub(crate) const fn uleq_step_9(x: u64, y: u64) -> u64 {
     (((((y | MSBS_STEP_9) - (x & !MSBS_STEP_9)) | (x ^ y)) ^ (x & !y)) & MSBS_STEP_9) >> 8
 }
 
 #[inline(always)]
-pub(crate) const fn byte_counts(mut x: usize) -> usize {
+pub(crate) const fn byte_counts(mut x: u64) -> u64 {
     x = x - ((x & (0xa * ONES_STEP_4)) >> 1);
     x = (x & (3 * ONES_STEP_4)) + ((x >> 2) & (3 * ONES_STEP_4));
     (x + (x >> 4)) & (0x0f * ONES_STEP_8)
 }
 
 #[inline(always)]
-pub(crate) const fn bytes_sum(x: usize) -> usize {
+pub(crate) const fn bytes_sum(x: u64) -> u64 {
     ONES_STEP_8.wrapping_mul(x) >> 56
 }
 
@@ -49,18 +49,18 @@ pub(crate) const fn bytes_sum(x: usize) -> usize {
 /// use jerky::broadword::popcount;
 ///
 /// assert_eq!(popcount(0), 0);
-/// assert_eq!(popcount(usize::MAX), 64);
+/// assert_eq!(popcount(u64::MAX), 64);
 /// assert_eq!(popcount(0b1010110011), 6);
 /// ```
 #[inline(always)]
-pub const fn popcount(x: usize) -> usize {
+pub const fn popcount(x: u64) -> usize {
     #[cfg(not(feature = "intrinsics"))]
     {
-        bytes_sum(byte_counts(x))
+        bytes_sum(byte_counts(x)) as usize
     }
     #[cfg(feature = "intrinsics")]
     {
-        intrinsics::popcount(x)
+        intrinsics::popcount(x as usize)
     }
 }
 
@@ -78,12 +78,12 @@ pub const fn popcount(x: usize) -> usize {
 /// assert_eq!(select_in_word(0b1000011, 3), None);
 /// ```
 #[inline(always)]
-pub const fn select_in_word(x: usize, k: usize) -> Option<usize> {
+pub const fn select_in_word(x: u64, k: usize) -> Option<usize> {
     if popcount(x) <= k {
         return None;
     }
     let byte_sums = ONES_STEP_8.wrapping_mul(byte_counts(x));
-    let k_step_8 = k * ONES_STEP_8;
+    let k_step_8 = (k as u64) * ONES_STEP_8;
     let geq_k_step_8 = ((k_step_8 | MSBS_STEP_8) - byte_sums) & MSBS_STEP_8;
     let place = {
         #[cfg(feature = "intrinsics")]
@@ -92,18 +92,18 @@ pub const fn select_in_word(x: usize, k: usize) -> Option<usize> {
         }
         #[cfg(not(feature = "intrinsics"))]
         {
-            ((geq_k_step_8 >> 7).wrapping_mul(ONES_STEP_8) >> 53) & !0x7
+            (((geq_k_step_8 >> 7).wrapping_mul(ONES_STEP_8) >> 53) & !0x7) as usize
         }
     };
-    let byte_rank = k - (((byte_sums << 8) >> place) & 0xFF);
-    let sel = place + SELECT_IN_BYTE[((x >> place) & 0xFF) | (byte_rank << 8)] as usize;
+    let byte_rank = k - (((byte_sums << 8) >> place) & 0xFF) as usize;
+    let sel = place + SELECT_IN_BYTE[(((x >> place) & 0xFF) as usize) | (byte_rank << 8)] as usize;
     Some(sel)
 }
 
 #[inline(always)]
-pub(crate) fn bit_position(x: usize) -> usize {
+pub(crate) fn bit_position(x: u64) -> usize {
     debug_assert!(popcount(x) == 1);
-    DEBRUIJN64_MAPPING[(DEBRUIJN64.wrapping_mul(x)) >> 58] as usize
+    DEBRUIJN64_MAPPING[(DEBRUIJN64.wrapping_mul(x) >> 58) as usize] as usize
 }
 
 /// Gets the least significant bit, returning [`None`] if `x == 0`.
@@ -118,18 +118,18 @@ pub(crate) fn bit_position(x: usize) -> usize {
 /// ```
 #[allow(clippy::missing_const_for_fn)]
 #[inline(always)]
-pub fn lsb(x: usize) -> Option<usize> {
+pub fn lsb(x: u64) -> Option<usize> {
     #[cfg(not(feature = "intrinsics"))]
     {
         if x == 0 {
             None
         } else {
-            Some(bit_position(x & usize::MAX.wrapping_mul(x)))
+            Some(bit_position(x & u64::MAX.wrapping_mul(x)))
         }
     }
     #[cfg(feature = "intrinsics")]
     {
-        intrinsics::bsf64(x)
+        intrinsics::bsf64(x as usize)
     }
 }
 
@@ -145,7 +145,7 @@ pub fn lsb(x: usize) -> Option<usize> {
 /// ```
 #[allow(clippy::missing_const_for_fn)]
 #[inline(always)]
-pub fn msb(x: usize) -> Option<usize> {
+pub fn msb(x: u64) -> Option<usize> {
     #[cfg(not(feature = "intrinsics"))]
     {
         if x == 0 {
@@ -165,7 +165,7 @@ pub fn msb(x: usize) -> Option<usize> {
     }
     #[cfg(feature = "intrinsics")]
     {
-        intrinsics::bsr64(x)
+        intrinsics::bsr64(x as usize)
     }
 }
 
@@ -242,7 +242,7 @@ const DEBRUIJN64_MAPPING: [u8; 64] = [
     45, 25, 31, 35, 16, 9, 12, 44, 24, 15, 8, 23, 7, 6, 5,
 ];
 
-const DEBRUIJN64: usize = 0x07EDD5E59A4E28C2;
+const DEBRUIJN64: u64 = 0x07EDD5E59A4E28C2;
 
 #[cfg(test)]
 mod tests {
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_select_in_word() {
-        let x: usize = 0b0000010011000011000011100100000000010000100010000010001100010011;
+        let x: u64 = 0b0000010011000011000011100100000000010000100010000010001100010011;
         let sels = [
             0, 1, 4, 8, 9, 13, 19, 23, 28, 38, 41, 42, 43, 48, 49, 54, 55, 58,
         ];

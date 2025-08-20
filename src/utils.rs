@@ -17,7 +17,7 @@ use crate::broadword;
 /// assert_eq!(needed_bits(256), 9);
 /// ```
 pub fn needed_bits(x: usize) -> usize {
-    broadword::msb(x).map_or(1, |n| n + 1)
+    broadword::msb(x as u64).map_or(1, |n| n + 1)
 }
 
 /// Returns `ceil(x / y)`.

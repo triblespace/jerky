@@ -3,81 +3,63 @@
 
 use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
+use std::iter::ExactSizeIterator;
 
 use crate::bit_vector::BitVectorBuilder;
 use crate::bit_vector::{BitVector, BitVectorData, NoIndex};
 use crate::int_vectors::prelude::*;
+use crate::serialization::Serializable;
 use crate::utils;
-use anybytes::Bytes;
+use anybytes::{area::SectionHandle, ByteArea, Bytes, SectionWriter};
 
 /// Mutable builder for [`CompactVector`].
 ///
-/// This structure collects integers using [`push_int`], [`set_int`], or
-/// [`extend`] and finally [`freeze`]s into an immutable [`CompactVector`].
+/// This structure collects integers using [`set_int`] or [`set_ints`]
+/// and finally [`freeze`]s into an immutable [`CompactVector`].
 ///
 /// # Examples
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use jerky::int_vectors::CompactVectorBuilder;
-/// let mut builder = CompactVectorBuilder::new(3)?;
-/// builder.push_int(1)?;
-/// builder.extend([2, 5])?;
+/// use anybytes::ByteArea;
+/// let mut area = ByteArea::new()?;
+/// let mut sections = area.sections();
+/// let mut builder = CompactVectorBuilder::with_capacity(3, 3, &mut sections)?;
+/// builder.set_ints(0..3, [1, 2, 5])?;
 /// let cv = builder.freeze();
 /// assert_eq!(cv.get_int(1), Some(2));
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Default, Clone)]
-pub struct CompactVectorBuilder {
-    chunks: BitVectorBuilder,
+#[derive(Debug)]
+pub struct CompactVectorBuilder<'a> {
+    chunks: BitVectorBuilder<'a>,
     len: usize,
     width: usize,
+    capacity: usize,
 }
 
-impl CompactVectorBuilder {
-    /// Creates a new empty builder storing integers within `width` bits each.
+impl<'a> CompactVectorBuilder<'a> {
+    /// Creates a new builder reserving space for `capa` integers.
     ///
-    /// # Arguments
-    ///
-    /// * `width` - Number of bits used to store each integer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `width` is outside `1..=64`.
-    pub fn new(width: usize) -> Result<Self> {
+    /// Pushing more than `capa` integers will return an error.
+    pub fn with_capacity(
+        capa: usize,
+        width: usize,
+        writer: &mut SectionWriter<'a>,
+    ) -> Result<Self> {
         if !(1..=64).contains(&width) {
             return Err(anyhow!("width must be in 1..=64, but got {width}."));
         }
+        let bits = capa
+            .checked_mul(width)
+            .ok_or_else(|| anyhow!("capa * width overflowed"))?;
         Ok(Self {
-            chunks: BitVectorBuilder::new(),
+            chunks: BitVectorBuilder::with_capacity(bits, writer)?,
             len: 0,
             width,
+            capacity: capa,
         })
-    }
-
-    /// Creates a new builder reserving space for at least `capa` integers.
-    ///
-    /// Currently the reservation is ignored as the builder grows
-    /// automatically.
-    pub fn with_capacity(_capa: usize, width: usize) -> Result<Self> {
-        Self::new(width)
-    }
-
-    /// Pushes integer `val` at the end.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `val` cannot be represented in `self.width()` bits.
-    pub fn push_int(&mut self, val: usize) -> Result<()> {
-        if self.width != 64 && val >> self.width != 0 {
-            return Err(anyhow!(
-                "val must fit in self.width()={} bits, but got {val}.",
-                self.width
-            ));
-        }
-        self.chunks.push_bits(val, self.width)?;
-        self.len += 1;
-        Ok(())
     }
 
     /// Sets the `pos`-th integer to `val`.
@@ -87,10 +69,10 @@ impl CompactVectorBuilder {
     /// Returns an error if `pos` is out of bounds or if `val` does not fit in
     /// `self.width()` bits.
     pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
-        if self.len <= pos {
+        if self.capacity <= pos {
             return Err(anyhow!(
-                "pos must be no greater than self.len()={}, but got {pos}.",
-                self.len
+                "pos must be no greater than self.capacity()={}, but got {pos}.",
+                self.capacity
             ));
         }
         if self.width != 64 && val >> self.width != 0 {
@@ -103,20 +85,36 @@ impl CompactVectorBuilder {
             let bit = ((val >> i) & 1) == 1;
             self.chunks.set_bit(pos * self.width + i, bit)?;
         }
+        if self.len <= pos {
+            self.len = pos + 1;
+        }
         Ok(())
     }
 
-    /// Appends integers at the end.
+    /// Sets integers in `range` from the provided values.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if any value does not fit in `self.width()` bits.
-    pub fn extend<I>(&mut self, vals: I) -> Result<()>
+    /// The number of integers in `vals` must match `range.len()`.
+    pub fn set_ints<I>(&mut self, range: std::ops::Range<usize>, vals: I) -> Result<()>
     where
         I: IntoIterator<Item = usize>,
     {
-        for x in vals {
-            self.push_int(x)?;
+        if range.end > self.capacity {
+            return Err(anyhow!(
+                "range end must be no greater than self.capacity()={}, but got {}.",
+                self.capacity,
+                range.end
+            ));
+        }
+        let mut pos = range.start;
+        for x in vals.into_iter() {
+            if pos >= range.end {
+                return Err(anyhow!("too many values for the specified range"));
+            }
+            self.set_int(pos, x)?;
+            pos += 1;
+        }
+        if pos != range.end {
+            return Err(anyhow!("not enough values for the specified range"));
         }
         Ok(())
     }
@@ -129,17 +127,22 @@ impl CompactVectorBuilder {
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::int_vectors::CompactVectorBuilder;
-    /// let cv = CompactVectorBuilder::new(2)?.freeze();
+    /// use anybytes::ByteArea;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let cv = CompactVectorBuilder::with_capacity(0, 2, &mut sections)?.freeze();
     /// assert!(cv.is_empty());
     /// # Ok(())
     /// # }
     /// ```
     pub fn freeze(self) -> CompactVector {
+        let handle = self.chunks.handle();
         let chunks: BitVector<NoIndex> = self.chunks.freeze::<NoIndex>();
         CompactVector {
             chunks,
             len: self.len,
             width: self.width,
+            handle,
         }
     }
 }
@@ -155,11 +158,13 @@ impl CompactVectorBuilder {
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+/// use anybytes::ByteArea;
 ///
 /// // Can store integers within 3 bits each.
-/// let mut builder = CompactVectorBuilder::new(3)?;
-/// builder.push_int(7)?;
-/// builder.push_int(2)?;
+/// let mut area = ByteArea::new()?;
+/// let mut sections = area.sections();
+/// let mut builder = CompactVectorBuilder::with_capacity(3, 3, &mut sections)?;
+/// builder.set_ints(0..2, [7, 2])?;
 /// builder.set_int(0, 5)?;
 /// let cv = builder.freeze();
 ///
@@ -168,60 +173,54 @@ impl CompactVectorBuilder {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct CompactVector {
     chunks: BitVector<NoIndex>,
     len: usize,
     width: usize,
+    handle: SectionHandle<u64>,
 }
+
+impl PartialEq for CompactVector {
+    fn eq(&self, other: &Self) -> bool {
+        self.chunks == other.chunks
+            && self.len == other.len
+            && self.width == other.width
+            && self.handle.offset == other.handle.offset
+            && self.handle.len == other.handle.len
+    }
+}
+
+impl Eq for CompactVector {}
 
 impl Default for CompactVector {
     fn default() -> Self {
+        let mut area = ByteArea::new().expect("byte area");
+        let mut sections = area.sections();
+        let builder = BitVectorBuilder::with_capacity(0, &mut sections).unwrap();
+        let handle = builder.handle();
+        let chunks = builder.freeze::<NoIndex>();
         Self {
-            chunks: BitVectorBuilder::new().freeze::<NoIndex>(),
+            chunks,
             len: 0,
             width: 0,
+            handle,
         }
     }
 }
 
-/// Metadata returned by [`CompactVector::to_bytes`] and required by
-/// [`CompactVector::from_bytes`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Metadata describing a [`CompactVector`] stored in a [`ByteArea`].
+#[derive(Debug, Clone, Copy)]
 pub struct CompactVectorMeta {
     /// Number of integers stored.
     pub len: usize,
     /// Bit width for each integer.
     pub width: usize,
+    /// Handle to the raw `u64` words backing the vector.
+    pub handle: SectionHandle<u64>,
 }
 
 impl CompactVector {
-    /// Creates a new empty builder storing integers within `width` bits each.
-    ///
-    /// # Arguments
-    ///
-    ///  - `width`: Number of bits used to store an integer.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if `width` is not in `1..=64`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::int_vectors::CompactVector;
-    ///
-    /// let cv = CompactVector::new(3)?.freeze();
-    /// assert_eq!(cv.len(), 0);
-    /// assert_eq!(cv.width(), 3);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn new(width: usize) -> Result<CompactVectorBuilder> {
-        CompactVectorBuilder::new(width)
-    }
-
     /// Creates a new builder storing integers in `width` bits and
     /// reserving space for at least `capa` integers.
     ///
@@ -240,7 +239,10 @@ impl CompactVector {
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use jerky::int_vectors::CompactVector;
     ///
-    /// let cv = CompactVector::with_capacity(10, 3)?.freeze();
+    /// use anybytes::ByteArea;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let cv = CompactVector::with_capacity(10, 3, &mut sections)?.freeze();
     ///
     /// assert_eq!(cv.len(), 0);
     /// assert_eq!(cv.width(), 3);
@@ -248,8 +250,12 @@ impl CompactVector {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_capacity(capa: usize, width: usize) -> Result<CompactVectorBuilder> {
-        CompactVectorBuilder::with_capacity(capa, width)
+    pub fn with_capacity<'a>(
+        capa: usize,
+        width: usize,
+        writer: &mut SectionWriter<'a>,
+    ) -> Result<CompactVectorBuilder<'a>> {
+        CompactVectorBuilder::with_capacity(capa, width, writer)
     }
 
     /// Creates a new vector storing an integer in `width` bits,
@@ -290,9 +296,11 @@ impl CompactVector {
                 "val must fit in width={width} bits, but got {val}."
             ));
         }
-        let mut builder = CompactVectorBuilder::with_capacity(len, width)?;
-        for _ in 0..len {
-            builder.push_int(val)?;
+        let mut area = ByteArea::new().expect("byte area");
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(len, width, &mut sections)?;
+        for i in 0..len {
+            builder.set_int(i, val)?;
         }
         Ok(builder.freeze())
     }
@@ -336,10 +344,15 @@ impl CompactVector {
                     anyhow!("vals must consist only of values castable into usize.")
                 })?);
         }
-        let mut builder =
-            CompactVectorBuilder::with_capacity(vals.len(), utils::needed_bits(max_int))?;
-        for x in vals {
-            builder.push_int(x.to_usize().unwrap())?;
+        let mut area = ByteArea::new().expect("byte area");
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(
+            vals.len(),
+            utils::needed_bits(max_int),
+            &mut sections,
+        )?;
+        for (i, x) in vals.iter().enumerate() {
+            builder.set_int(i, x.to_usize().unwrap())?;
         }
         Ok(builder.freeze())
     }
@@ -424,26 +437,41 @@ impl CompactVector {
     }
 
     /// Serializes the vector into a [`Bytes`] buffer and accompanying metadata.
-    pub fn to_bytes(&self) -> (CompactVectorMeta, Bytes) {
-        let (_, bytes) = self.chunks.data.to_bytes();
-        (
-            CompactVectorMeta {
-                len: self.len,
-                width: self.width,
-            },
-            bytes,
-        )
+    /// Returns metadata describing this vector.
+    pub fn metadata(&self) -> CompactVectorMeta {
+        <Self as Serializable>::metadata(self)
     }
 
     /// Reconstructs the vector from zero-copy [`Bytes`] and its metadata.
     pub fn from_bytes(meta: CompactVectorMeta, bytes: Bytes) -> Result<Self> {
+        <Self as Serializable>::from_bytes(meta, bytes)
+    }
+}
+
+impl Serializable for CompactVector {
+    type Meta = CompactVectorMeta;
+
+    fn metadata(&self) -> Self::Meta {
+        CompactVectorMeta {
+            len: self.len,
+            width: self.width,
+            handle: self.handle,
+        }
+    }
+
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
         let data_len = meta.len * meta.width;
-        let data = BitVectorData::from_bytes(data_len, bytes)?;
+        let words_view = meta.handle.view(&bytes).map_err(|e| anyhow!(e))?;
+        let data = BitVectorData {
+            words: words_view,
+            len: data_len,
+        };
         let chunks = BitVector::new(data, NoIndex);
         Ok(Self {
             chunks,
             len: meta.len,
             width: meta.width,
+            handle: meta.handle,
         })
     }
 }
@@ -531,6 +559,8 @@ impl Iterator for Iter<'_> {
     }
 }
 
+impl ExactSizeIterator for Iter<'_> {}
+
 impl std::fmt::Debug for CompactVector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut ints = vec![0; self.len()];
@@ -550,26 +580,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_oob_0() {
-        let e = CompactVector::new(0);
-        assert_eq!(
-            e.err().map(|x| x.to_string()),
-            Some("width must be in 1..=64, but got 0.".to_string())
-        );
-    }
-
-    #[test]
-    fn test_new_oob_65() {
-        let e = CompactVector::new(65);
-        assert_eq!(
-            e.err().map(|x| x.to_string()),
-            Some("width must be in 1..=64, but got 65.".to_string())
-        );
-    }
-
-    #[test]
     fn test_with_capacity_oob_0() {
-        let e = CompactVector::with_capacity(0, 0);
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let e = CompactVector::with_capacity(0, 0, &mut sections);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("width must be in 1..=64, but got 0.".to_string())
@@ -578,7 +592,9 @@ mod tests {
 
     #[test]
     fn test_with_capacity_oob_65() {
-        let e = CompactVector::with_capacity(0, 65);
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let e = CompactVector::with_capacity(0, 65, &mut sections);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("width must be in 1..=64, but got 65.".to_string())
@@ -623,19 +639,21 @@ mod tests {
 
     #[test]
     fn test_set_int_oob() {
-        let mut builder = CompactVectorBuilder::with_capacity(1, 2).unwrap();
-        builder.push_int(0).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(1, 2, &mut sections).unwrap();
         let e = builder.set_int(1, 1);
         assert_eq!(
             e.err().map(|x| x.to_string()),
-            Some("pos must be no greater than self.len()=1, but got 1.".to_string())
+            Some("pos must be no greater than self.capacity()=1, but got 1.".to_string())
         );
     }
 
     #[test]
     fn test_set_int_unfit() {
-        let mut builder = CompactVectorBuilder::with_capacity(1, 2).unwrap();
-        builder.push_int(0).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(1, 2, &mut sections).unwrap();
         let e = builder.set_int(0, 4);
         assert_eq!(
             e.err().map(|x| x.to_string()),
@@ -644,30 +662,23 @@ mod tests {
     }
 
     #[test]
-    fn test_push_int_unfit() {
-        let mut builder = CompactVectorBuilder::new(2).unwrap();
-        let e = builder.push_int(4);
+    fn test_set_ints_mismatch() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(2, 2, &mut sections).unwrap();
+        let e = builder.set_ints(0..2, [1]);
         assert_eq!(
             e.err().map(|x| x.to_string()),
-            Some("val must fit in self.width()=2 bits, but got 4.".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extend_unfit() {
-        let mut builder = CompactVectorBuilder::new(2).unwrap();
-        let e = builder.extend([4]);
-        assert_eq!(
-            e.err().map(|x| x.to_string()),
-            Some("val must fit in self.width()=2 bits, but got 4.".to_string())
+            Some("not enough values for the specified range".to_string())
         );
     }
 
     #[test]
     fn test_64b() {
-        let mut builder = CompactVectorBuilder::new(64).unwrap();
-        builder.push_int(42).unwrap();
-        assert_eq!(builder.clone().freeze().get_int(0), Some(42));
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = CompactVectorBuilder::with_capacity(1, 64, &mut sections).unwrap();
+        builder.set_int(0, 42).unwrap();
         builder.set_int(0, 334).unwrap();
         let cv = builder.freeze();
         assert_eq!(cv.get_int(0), Some(334));
@@ -695,7 +706,8 @@ mod tests {
     #[test]
     fn from_bytes_roundtrip() {
         let cv = CompactVector::from_slice(&[4, 5, 6]).unwrap();
-        let (meta, bytes) = cv.to_bytes();
+        let meta = cv.metadata();
+        let bytes = cv.chunks.data.words.clone().bytes();
         let other = CompactVector::from_bytes(meta, bytes).unwrap();
         assert_eq!(cv, other);
     }
