@@ -7,6 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
+use anybytes::ByteArea;
 use jerky::bit_vector::{BitVector, BitVectorBuilder, NoIndex, Rank, Rank9SelIndex};
 
 const SAMPLE_SIZE: usize = 30;
@@ -39,15 +40,23 @@ fn run_queries<R: Rank>(idx: &R, queries: &[usize]) {
 
 fn perform_bitvec_rank(group: &mut BenchmarkGroup<WallTime>, bits: &[bool], queries: &[usize]) {
     group.bench_function("jerky/BitVector", |b| {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits(bits.iter().cloned());
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(bits.len(), &mut sections).unwrap();
+        for (i, &bval) in bits.iter().enumerate() {
+            builder.set_bit(i, bval).unwrap();
+        }
         let idx: BitVector<NoIndex> = builder.freeze();
         b.iter(|| run_queries(&idx, &queries));
     });
 
     group.bench_function("jerky/BitVector<Rank9SelIndex>", |b| {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits(bits.iter().cloned());
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(bits.len(), &mut sections).unwrap();
+        for (i, &bval) in bits.iter().enumerate() {
+            builder.set_bit(i, bval).unwrap();
+        }
         let idx = builder.freeze::<Rank9SelIndex>();
         b.iter(|| run_queries(&idx, &queries));
     });

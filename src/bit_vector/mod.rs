@@ -49,8 +49,12 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use jerky::bit_vector::*;
 //!
-//! let mut builder = BitVectorBuilder::new();
-//! builder.extend_bits([true, false, false, true]);
+//! use anybytes::ByteArea;
+//! let mut area = ByteArea::new()?;
+//! let mut sections = area.sections();
+//! let mut builder = BitVectorBuilder::with_capacity(4, &mut sections)?;
+//! builder.set_bit(0, true)?;
+//! builder.set_bit(3, true)?;
 //! let bv = builder.freeze::<Rank9SelIndex>();
 //!
 //! assert_eq!(bv.num_bits(), 4);
@@ -120,84 +124,71 @@ pub trait Select {
 }
 
 /// The number of bits in a machine word.
-pub const WORD_LEN: usize = core::mem::size_of::<usize>() * 8;
+pub const WORD_LEN: usize = core::mem::size_of::<u64>() * 8;
 
-use anybytes::{Bytes, View};
+use anybytes::{area::SectionHandle, ByteArea, Bytes, Section, SectionWriter, View};
 use anyhow::{anyhow, Result};
 
 /// Builder that collects raw bits into a zero-copy [`BitVector`].
-#[derive(Debug, Default, Clone)]
-pub struct BitVectorBuilder {
-    words: Vec<usize>,
+
+#[derive(Debug)]
+pub struct BitVectorBuilder<'a> {
+    words: Section<'a, u64>,
     len: usize,
 }
 
-impl BitVectorBuilder {
-    /// Creates an empty builder.
-    pub fn new() -> Self {
-        Self::default()
+impl<'a> BitVectorBuilder<'a> {
+    /// Creates a builder storing `len` zero bits.
+    pub fn with_capacity(len: usize, writer: &mut SectionWriter<'a>) -> Result<Self> {
+        let num_words = (len + WORD_LEN - 1) / WORD_LEN;
+        let mut words = writer.reserve::<u64>(num_words)?;
+        words.as_mut_slice().fill(0);
+        Ok(Self { words, len })
     }
 
     /// Creates a builder that stores `len` copies of `bit`.
-    pub fn from_bit(bit: bool, len: usize) -> Self {
+    pub fn from_bit(bit: bool, len: usize, writer: &mut SectionWriter<'a>) -> Result<Self> {
         if len == 0 {
-            return Self::default();
+            return Self::with_capacity(0, writer);
         }
-        let word = if bit { usize::MAX } else { 0 };
+        let word = if bit { u64::MAX } else { 0 };
         let num_words = (len + WORD_LEN - 1) / WORD_LEN;
-        let mut words = vec![word; num_words];
+        let mut words = writer.reserve::<u64>(num_words)?;
+        words.as_mut_slice().fill(word);
         let shift = len % WORD_LEN;
         if shift != 0 {
-            let mask = (1 << shift) - 1;
-            *words.last_mut().unwrap() &= mask;
+            let mask = (1u64 << shift) - 1;
+            *words.as_mut_slice().last_mut().unwrap() &= mask;
         }
-        Self { words, len }
+        Ok(Self { words, len })
     }
 
-    /// Pushes a single bit.
-    pub fn push_bit(&mut self, bit: bool) {
-        let pos_in_word = self.len % WORD_LEN;
-        if pos_in_word == 0 {
-            self.words.push(bit as usize);
-        } else {
-            let cur = self.words.last_mut().unwrap();
-            *cur |= (bit as usize) << pos_in_word;
-        }
-        self.len += 1;
-    }
-
-    /// Pushes `len` bits from `bits` at the end.
-    ///
-    /// Bits outside the lowest `len` bits are truncated.
-    pub fn push_bits(&mut self, bits: usize, len: usize) -> Result<()> {
-        if WORD_LEN < len {
-            return Err(anyhow!(
-                "len must be no greater than {WORD_LEN}, but got {len}."
-            ));
-        }
-        if len == 0 {
-            return Ok(());
-        }
-
-        let mask = if len < WORD_LEN {
-            (1 << len) - 1
-        } else {
-            usize::MAX
-        };
-        let bits = bits & mask;
-
-        let pos_in_word = self.len % WORD_LEN;
-        if pos_in_word == 0 {
-            self.words.push(bits);
-        } else {
-            let cur = self.words.last_mut().unwrap();
-            *cur |= bits << pos_in_word;
-            if len > WORD_LEN - pos_in_word {
-                self.words.push(bits >> (WORD_LEN - pos_in_word));
+    /// Fills the entire builder with `bit`.
+    pub fn fill(&mut self, bit: bool) {
+        let word = if bit { u64::MAX } else { 0 };
+        self.words.as_mut_slice().fill(word);
+        if bit {
+            let shift = self.len % WORD_LEN;
+            if shift != 0 {
+                let mask = (1u64 << shift) - 1;
+                if let Some(last) = self.words.as_mut_slice().last_mut() {
+                    *last &= mask;
+                }
             }
         }
-        self.len += len;
-        Ok(())
+    }
+
+    /// Returns the `pos`-th bit.
+    pub fn get_bit(&self, pos: usize) -> Result<bool> {
+        if self.len <= pos {
+            return Err(anyhow!(
+                "pos must be no greater than self.len()={}, but got {pos}.",
+                self.len
+            ));
+        }
+        let word = pos / WORD_LEN;
+        let pos_in_word = pos % WORD_LEN;
+        Ok(((self.words[word] >> pos_in_word) & 1u64) == 1)
     }
 
     /// Sets the `pos`-th bit to `bit`.
@@ -210,18 +201,103 @@ impl BitVectorBuilder {
         }
         let word = pos / WORD_LEN;
         let pos_in_word = pos % WORD_LEN;
-        self.words[word] &= !(1 << pos_in_word);
-        self.words[word] |= (bit as usize) << pos_in_word;
+        self.words[word] &= !(1u64 << pos_in_word);
+        self.words[word] |= (bit as u64) << pos_in_word;
         Ok(())
     }
 
-    /// Extends the builder from an iterator of bits.
-    pub fn extend_bits<I: IntoIterator<Item = bool>>(&mut self, bits: I) {
-        bits.into_iter().for_each(|b| self.push_bit(b));
+    /// Sets all bits in `range` to `bit`.
+    pub fn set_bits(&mut self, range: std::ops::Range<usize>, bit: bool) -> Result<()> {
+        if range.end > self.len {
+            return Err(anyhow!(
+                "range end must be no greater than self.len()={}, but got {}.",
+                self.len,
+                range.end
+            ));
+        }
+        if range.is_empty() {
+            return Ok(());
+        }
+        let mut pos = range.start;
+        while pos < range.end {
+            let word = pos / WORD_LEN;
+            let pos_in_word = pos % WORD_LEN;
+            let remaining = range.end - pos;
+            let take = remaining.min(WORD_LEN - pos_in_word);
+            let mask = if take == WORD_LEN {
+                u64::MAX
+            } else {
+                ((1u64 << take) - 1) << pos_in_word
+            };
+            if bit {
+                self.words[word] |= mask;
+            } else {
+                self.words[word] &= !mask;
+            }
+            pos += take;
+        }
+        Ok(())
+    }
+
+    /// Swaps bits at positions `a` and `b`.
+    pub fn swap_bits(&mut self, a: usize, b: usize) -> Result<()> {
+        if a >= self.len || b >= self.len {
+            return Err(anyhow!(
+                "positions must be less than self.len()={}, but got {a} and {b}.",
+                self.len
+            ));
+        }
+        if a == b {
+            return Ok(());
+        }
+        let wa = a / WORD_LEN;
+        let wb = b / WORD_LEN;
+        let ba = a % WORD_LEN;
+        let bb = b % WORD_LEN;
+        let ma = 1u64 << ba;
+        let mb = 1u64 << bb;
+        let bit_a = (self.words[wa] & ma) != 0;
+        let bit_b = (self.words[wb] & mb) != 0;
+        if bit_a != bit_b {
+            self.words[wa] ^= ma;
+            self.words[wb] ^= mb;
+        }
+        Ok(())
+    }
+
+    /// Sets bits starting at `start` from the provided iterator.
+    ///
+    /// Bits are written sequentially from `start` until either the iterator is
+    /// exhausted or the builder capacity is reached. Returns the number of bits
+    /// written. The iterator is taken by mutable reference so that any
+    /// unconsumed items remain available to the caller.
+    pub fn set_bits_from_iter<I>(&mut self, start: usize, bits: &mut I) -> Result<usize>
+    where
+        I: Iterator<Item = bool>,
+    {
+        if start > self.len {
+            return Err(anyhow!(
+                "start must be no greater than self.len()={}, but got {}.",
+                self.len,
+                start
+            ));
+        }
+        let mut pos = start;
+        while pos < self.len {
+            match bits.next() {
+                Some(bit) => {
+                    self.set_bit(pos, bit)?;
+                    pos += 1;
+                }
+                None => break,
+            }
+        }
+        Ok(pos - start)
     }
 
     fn into_data(self) -> BitVectorData {
-        let words = Bytes::from_source(self.words).view::<[usize]>().unwrap();
+        let words_bytes = self.words.freeze().expect("freeze section");
+        let words = words_bytes.view::<[u64]>().unwrap();
         BitVectorData {
             words,
             len: self.len,
@@ -235,9 +311,9 @@ impl BitVectorBuilder {
         BitVector::new(data, index)
     }
 
-    /// Serializes the builder contents into a [`Bytes`] buffer.
-    pub fn into_bytes(self) -> (usize, Bytes) {
-        (self.len, Bytes::from_source(self.words))
+    /// Returns a handle to the backing words section.
+    pub fn handle(&self) -> SectionHandle<u64> {
+        self.words.handle()
     }
 }
 
@@ -245,7 +321,7 @@ impl BitVectorBuilder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BitVectorData {
     /// Underlying machine words storing bit data.
-    pub words: View<[usize]>,
+    pub words: View<[u64]>,
     /// Number of valid bits in `words`.
     pub len: usize,
 }
@@ -253,7 +329,7 @@ pub struct BitVectorData {
 impl Default for BitVectorData {
     fn default() -> Self {
         Self {
-            words: Bytes::empty().view::<[usize]>().unwrap(),
+            words: Bytes::empty().view::<[u64]>().unwrap(),
             len: 0,
         }
     }
@@ -262,14 +338,19 @@ impl Default for BitVectorData {
 impl BitVectorData {
     /// Creates bit vector data from a bit iterator.
     pub fn from_bits<I: IntoIterator<Item = bool>>(bits: I) -> Self {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits(bits);
+        let vec: Vec<bool> = bits.into_iter().collect();
+        let mut area = ByteArea::new().expect("byte area");
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(vec.len(), &mut sections).unwrap();
+        for (i, b) in vec.into_iter().enumerate() {
+            builder.set_bit(i, b).unwrap();
+        }
         builder.into_data()
     }
 
     /// Reconstructs the data from zero-copy [`Bytes`].
     pub fn from_bytes(len: usize, bytes: Bytes) -> Result<Self> {
-        let words = bytes.view::<[usize]>().map_err(|e| anyhow::anyhow!(e))?;
+        let words = bytes.view::<[u64]>().map_err(|e| anyhow::anyhow!(e))?;
         Ok(Self { words, len })
     }
 
@@ -279,7 +360,7 @@ impl BitVectorData {
     }
 
     /// Returns the raw word slice.
-    pub fn words(&self) -> &[usize] {
+    pub fn words(&self) -> &[u64] {
         self.words.as_ref()
     }
 
@@ -299,21 +380,16 @@ impl BitVectorData {
         let block = pos / WORD_LEN;
         let shift = pos % WORD_LEN;
         let mask = if len < WORD_LEN {
-            (1 << len) - 1
+            (1u64 << len) - 1
         } else {
-            usize::MAX
+            u64::MAX
         };
         let bits = if shift + len <= WORD_LEN {
             (self.words[block] >> shift) & mask
         } else {
             (self.words[block] >> shift) | ((self.words[block + 1] << (WORD_LEN - shift)) & mask)
         };
-        Some(bits)
-    }
-
-    /// Serializes the data into a [`Bytes`] buffer.
-    pub fn to_bytes(&self) -> (usize, Bytes) {
-        (self.len, self.words.clone().bytes())
+        Some(bits as usize)
     }
 }
 
@@ -328,7 +404,7 @@ impl Access for BitVectorData {
         if pos < self.len {
             let block = pos / WORD_LEN;
             let shift = pos % WORD_LEN;
-            Some((self.words[block] >> shift) & 1 == 1)
+            Some((self.words[block] >> shift) & 1u64 == 1)
         } else {
             None
         }
@@ -561,10 +637,12 @@ mod tests {
 
     #[test]
     fn builder_freeze() {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits([true, false]);
-        builder.push_bits(0b10, 2).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(4, &mut sections).unwrap();
+        builder.set_bit(0, true).unwrap();
         builder.set_bit(1, true).unwrap();
+        builder.set_bit(3, true).unwrap();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
         assert_eq!(bv.len(), 4);
         assert_eq!(bv.get_bits(0, 4), Some(0b1011));
@@ -572,11 +650,17 @@ mod tests {
 
     #[test]
     fn from_bytes_roundtrip() {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits([true, false, true, true, false]);
-        let expected: BitVector<NoIndex> = builder.clone().freeze::<NoIndex>();
-        let (len, bytes) = builder.into_bytes();
-
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(5, &mut sections).unwrap();
+        builder.set_bit(0, true).unwrap();
+        builder.set_bit(2, true).unwrap();
+        builder.set_bit(3, true).unwrap();
+        let expected: BitVector<NoIndex> =
+            BitVectorData::from_bits([true, false, true, true, false]).into();
+        let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
+        let len = bv.data.len;
+        let bytes = bv.data.words.clone().bytes();
         let data = BitVectorData::from_bytes(len, bytes).unwrap();
         let other: BitVector<NoIndex> = data.into();
         assert_eq!(expected, other);
@@ -593,20 +677,57 @@ mod tests {
     }
 
     #[test]
-    fn builder_push_bits_across_word() {
-        let mut builder = BitVectorBuilder::new();
-        builder.extend_bits(core::iter::repeat(false).take(62));
-        builder.push_bits(0b011111, 6).unwrap();
+    fn builder_set_bits_across_word() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(68, &mut sections).unwrap();
+        builder.set_bits(0..68, false).unwrap();
+        builder.set_bits(62..68, true).unwrap();
+        builder.set_bit(67, false).unwrap();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
         assert_eq!(bv.data.get_bits(61, 7).unwrap(), 0b0111110);
     }
 
     #[test]
     fn builder_from_bit() {
-        let builder = BitVectorBuilder::from_bit(true, 5);
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let builder = BitVectorBuilder::from_bit(true, 5, &mut sections).unwrap();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
         assert_eq!(bv.len(), 5);
         assert_eq!(bv.num_ones(), 5);
+    }
+
+    #[test]
+    fn builder_capacity_limit() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(3, &mut sections).unwrap();
+        assert!(builder.set_bit(3, true).is_err());
+    }
+
+    #[test]
+    fn builder_set_bits_from_iter() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(4, &mut sections).unwrap();
+        let mut iter = [true, false, true, true].iter().copied();
+        let written = builder.set_bits_from_iter(0, &mut iter).unwrap();
+        assert_eq!(written, 4);
+        let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
+        assert_eq!(bv.data.get_bits(0, 4).unwrap(), 0b1101);
+    }
+
+    #[test]
+    fn builder_set_bits_from_iter_leaves_unconsumed() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder = BitVectorBuilder::with_capacity(2, &mut sections).unwrap();
+        let mut iter = [true, false, true].iter().copied();
+        let written = builder.set_bits_from_iter(0, &mut iter).unwrap();
+        assert_eq!(written, 2);
+        let remaining: Vec<bool> = iter.collect();
+        assert_eq!(remaining, vec![true]);
     }
 
     #[test]

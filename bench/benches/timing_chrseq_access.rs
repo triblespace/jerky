@@ -3,6 +3,7 @@ use std::time::Duration;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
+use anybytes::ByteArea;
 use jerky::bit_vector::*;
 use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
@@ -25,8 +26,9 @@ const PROTEINS_PSEF_STR: &str = include_str!("../data/texts/proteins.1MiB.txt");
 // In effective alphabet
 fn load_text(s: &str) -> CompactVector {
     let mut text = s.as_bytes().to_vec();
-    let mut builder = BitVectorBuilder::new();
-    builder.extend_bits(core::iter::repeat(false).take(256));
+    let mut area = ByteArea::new().unwrap();
+    let mut sections = area.sections();
+    let mut builder = BitVectorBuilder::with_capacity(256, &mut sections).unwrap();
     for &c in &text {
         builder.set_bit(c as usize, true).unwrap();
     }
@@ -92,7 +94,11 @@ fn perform_chrseq_access(group: &mut BenchmarkGroup<WallTime>, text: &CompactVec
     let queries = gen_random_ints(NUM_QUERIES, 0, text.len(), SEED_QUERIES);
 
     group.bench_function("jerky/WaveletMatrix<Rank9SelIndex>", |b| {
-        let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
+        let alph_size = text.iter().max().unwrap() + 1;
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let idx = WaveletMatrix::<Rank9SelIndex>::from_iter(alph_size, text.iter(), &mut sections)
+            .unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

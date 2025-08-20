@@ -1,3 +1,4 @@
+use anybytes::ByteArea;
 use jerky::bit_vector::{BitVector, BitVectorBuilder, NoIndex, Rank, Rank9SelIndex};
 use jerky::char_sequences::WaveletMatrix;
 use jerky::int_vectors::CompactVector;
@@ -15,8 +16,9 @@ fn main() {
 // In effective alphabet
 fn load_text(s: &str) -> CompactVector {
     let mut text = s.as_bytes().to_vec();
-    let mut builder = BitVectorBuilder::new();
-    builder.extend_bits(core::iter::repeat(false).take(256));
+    let mut area = ByteArea::new().unwrap();
+    let mut sections = area.sections();
+    let mut builder = BitVectorBuilder::with_capacity(256, &mut sections).unwrap();
     for &c in &text {
         builder.set_bit(c as usize, true).unwrap();
     }
@@ -32,14 +34,17 @@ fn show_memories(title: &str, text: &CompactVector) {
     show_data_stats(text);
 
     let bytes = {
-        let idx = WaveletMatrix::<Rank9SelIndex>::new(text.clone()).unwrap();
+        let alph_size = text.iter().max().unwrap() + 1;
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let idx = WaveletMatrix::<Rank9SelIndex>::from_iter(alph_size, text.iter(), &mut sections)
+            .unwrap();
         let layer_bytes: usize = idx
             .layers
             .iter()
             .map(|bv| {
-                let (_, data) = bv.data.to_bytes();
-                let index = bv.index.to_bytes();
-                data.as_ref().len() + index.as_ref().len()
+                let data_bytes = bv.data.words.bytes();
+                data_bytes.as_ref().len()
             })
             .sum();
         layer_bytes + std::mem::size_of::<usize>()

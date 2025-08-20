@@ -2,16 +2,15 @@
 //! supporting some queries such as ranking, selection, and intersection.
 #![cfg(target_pointer_width = "64")]
 
-use std::ops::Range;
+use std::{iter::ExactSizeIterator, ops::Range};
 
-use anybytes::Bytes;
+use anybytes::{area::SectionHandle, ByteArea, Bytes, Section, SectionWriter};
 use anyhow::{anyhow, Result};
 
 use crate::bit_vector::{
     Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorIndex, NumBits, Rank, Select,
-    WORD_LEN,
 };
-use crate::int_vectors::{CompactVector, CompactVectorBuilder};
+use crate::serialization::Serializable;
 use crate::utils;
 
 /// Time- and space-efficient data structure for a sequence of integers,
@@ -26,20 +25,23 @@ use crate::utils;
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+/// use jerky::bit_vector::Rank9SelIndex;
 /// use jerky::char_sequences::WaveletMatrix;
-/// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+/// use anybytes::ByteArea;
 ///
 /// let text = "banana";
-/// let len = text.chars().count();
-///
-/// // It accepts an integer representable in 8 bits.
-/// let mut builder = CompactVectorBuilder::new(8)?;
-/// builder.extend(text.chars().map(|c| c as usize))?;
-/// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+/// let alph_size = ('n' as usize) + 1;
+/// let len = text.len();
+/// let mut area = ByteArea::new()?;
+/// let mut sections = area.sections();
+/// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+///     alph_size,
+///     text.bytes().map(|b| b as usize),
+///     &mut sections,
+/// )?;
 ///
 /// assert_eq!(wm.len(), len);
-/// assert_eq!(wm.alph_size(), 'n' as usize + 1);
+/// assert_eq!(wm.alph_size(), alph_size);
 /// assert_eq!(wm.alph_width(), 7);
 ///
 /// assert_eq!(wm.access(2), Some('n' as usize));
@@ -56,14 +58,26 @@ use crate::utils;
 /// # References
 ///
 /// - F. Claude, and G. Navarro, "The Wavelet Matrix," In SPIRE 2012.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct WaveletMatrix<I> {
     layers: Vec<BitVector<I>>,
     alph_size: usize,
+    layers_handle: SectionHandle<SectionHandle<u64>>,
 }
 
+impl<I: PartialEq> PartialEq for WaveletMatrix<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.layers == other.layers
+            && self.alph_size == other.alph_size
+            && self.layers_handle.offset == other.layers_handle.offset
+            && self.layers_handle.len == other.layers_handle.len
+    }
+}
+
+impl<I: Eq> Eq for WaveletMatrix<I> {}
+
 /// Metadata describing the serialized form of a [`WaveletMatrix`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct WaveletMatrixMeta {
     /// Maximum value + 1 stored in the matrix.
     pub alph_size: usize,
@@ -71,76 +85,224 @@ pub struct WaveletMatrixMeta {
     pub alph_width: usize,
     /// Number of integers stored.
     pub len: usize,
+    /// Handle to a slice of per-layer [`SectionHandle`]s stored in the byte arena.
+    pub layers: SectionHandle<SectionHandle<u64>>,
+}
+
+/// Builder for [`WaveletMatrix`].
+pub struct WaveletMatrixBuilder<'a> {
+    alph_size: usize,
+    len: usize,
+    alph_width: usize,
+    layers: Vec<BitVectorBuilder<'a>>,
+    handles: Section<'a, SectionHandle<u64>>,
+}
+
+impl<'a> WaveletMatrixBuilder<'a> {
+    /// Creates a builder for a sequence of `len` integers in `0..alph_size`.
+    pub fn with_capacity(
+        alph_size: usize,
+        len: usize,
+        writer: &mut SectionWriter<'a>,
+    ) -> Result<Self> {
+        if len == 0 {
+            return Err(anyhow!("seq must not be empty."));
+        }
+        let alph_width = utils::needed_bits(alph_size);
+        let mut handles = writer.reserve::<SectionHandle<u64>>(alph_width)?;
+        let mut layers = Vec::with_capacity(alph_width);
+        for idx in 0..alph_width {
+            let builder = BitVectorBuilder::with_capacity(len, writer)?;
+            handles[idx] = builder.handle();
+            layers.push(builder);
+        }
+        Ok(Self {
+            alph_size,
+            len,
+            alph_width,
+            layers,
+            handles,
+        })
+    }
+
+    /// Sets the `pos`-th integer to `val`.
+    pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
+        if self.len <= pos {
+            return Err(anyhow!(
+                "pos must be no greater than self.len()={}, but got {pos}.",
+                self.len
+            ));
+        }
+        if val >= self.alph_size {
+            return Err(anyhow!("value {} out of range 0..{}", val, self.alph_size));
+        }
+        for (layer_idx, layer) in self.layers.iter_mut().enumerate() {
+            let shift = self.alph_width - 1 - layer_idx;
+            let bit = ((val >> shift) & 1) == 1;
+            layer.set_bit(pos, bit)?;
+        }
+        Ok(())
+    }
+
+    /// Writes integers from `ints` starting at `start`.
+    ///
+    /// Returns the number of integers written.
+    pub fn set_ints_from_iter<I>(&mut self, start: usize, ints: &mut I) -> Result<usize>
+    where
+        I: Iterator<Item = usize>,
+    {
+        if start > self.len {
+            return Err(anyhow!(
+                "start must be no greater than self.len()={}, but got {}.",
+                self.len,
+                start
+            ));
+        }
+        let mut pos = start;
+        while pos < self.len {
+            match ints.next() {
+                Some(x) => {
+                    self.set_int(pos, x)?;
+                    pos += 1;
+                }
+                None => break,
+            }
+        }
+        Ok(pos - start)
+    }
+
+    /// Finalizes the builder into a [`WaveletMatrix`].
+    ///
+    /// Layers are frozen from most significant to least significant bit.
+    /// After freezing the current layer, the permutation induced by its bits is
+    /// applied in place to all remaining (deeper) layers using cycle
+    /// rotations.  A single scratch `visited` bitmap tracks processed
+    /// positions, ensuring $`O(n)`$ extra bits overall.
+    pub fn freeze<Ix: BitVectorIndex>(self) -> Result<WaveletMatrix<Ix>> {
+        // Builders for yet-unfrozen layers. Reverse so popping yields the next
+        // layer without shifting the entire vector each iteration.
+        let mut remaining = self.layers;
+        remaining.reverse();
+        let mut layers = Vec::with_capacity(self.alph_width);
+        let mut scratch = ByteArea::new()?;
+        let mut scratch_sections = scratch.sections();
+        let mut visited = BitVectorBuilder::with_capacity(self.len, &mut scratch_sections)?;
+        let handles = self.handles;
+
+        for _ in 0..self.alph_width {
+            // Freeze the next layer and obtain its index for rank/select queries.
+            let builder = remaining.pop().expect("layer available");
+            let layer = builder.freeze::<Ix>();
+            let zeros = layer.num_zeros();
+
+            if !remaining.is_empty() {
+                // Apply the permutation induced by this layer to all deeper
+                // levels. Only the minority side needs to start cycles.
+                visited.fill(false);
+                let ones = self.len - zeros;
+                let iterate_zeros = zeros <= ones;
+                let count = if iterate_zeros { zeros } else { ones };
+
+                for t in 0..count {
+                    let start = if iterate_zeros {
+                        layer.select0(t).expect("select0 in range")
+                    } else {
+                        layer.select1(t).expect("select1 in range")
+                    };
+                    if visited.get_bit(start)? {
+                        continue;
+                    }
+                    rotate_cycle_over_lower_levels(
+                        &layer,
+                        zeros,
+                        start,
+                        &mut remaining,
+                        &mut visited,
+                    )?;
+                }
+            }
+
+            layers.push(layer);
+        }
+
+        let layers_handle = handles.handle();
+        handles.freeze()?;
+        Ok(WaveletMatrix {
+            layers,
+            alph_size: self.alph_size,
+            layers_handle,
+        })
+    }
+}
+
+/// Rotates a permutation cycle for all deeper layers during freezing.
+///
+/// The cycle starts at `start` and follows the permutation induced by the
+/// already-frozen layer `layer`. Bits on levels below `layer` are moved in
+/// place without any additional buffers.
+fn rotate_cycle_over_lower_levels<Ix: BitVectorIndex>(
+    layer: &BitVector<Ix>,
+    zeros: usize,
+    start: usize,
+    lower: &mut [BitVectorBuilder<'_>],
+    visited: &mut BitVectorBuilder<'_>,
+) -> Result<()> {
+    debug_assert!(lower.len() <= usize::BITS as usize);
+    let mut carry: usize = 0;
+    for (offset, b) in lower.iter().enumerate() {
+        if b.get_bit(start)? {
+            carry |= 1usize << offset;
+        }
+    }
+    let mut p = start;
+    loop {
+        visited.set_bit(p, true)?;
+        let bit = layer.access(p).expect("access within bounds");
+        let q = if !bit {
+            layer.rank0(p).expect("rank0 within bounds")
+        } else {
+            zeros + layer.rank1(p).expect("rank1 within bounds")
+        };
+        for (offset, b) in lower.iter_mut().enumerate() {
+            let tmp = b.get_bit(q)?;
+            let bit = (carry >> offset) & 1 == 1;
+            b.set_bit(q, bit)?;
+            carry = (carry & !(1usize << offset)) | ((tmp as usize) << offset);
+        }
+        p = q;
+        if visited.get_bit(p)? {
+            break;
+        }
+    }
+    Ok(())
 }
 
 impl<I> WaveletMatrix<I>
 where
     I: BitVectorIndex,
 {
-    /// Creates a new instance from an input sequence `seq`.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if
-    ///
-    ///  - `seq` is empty.
-    pub fn new(seq: CompactVector) -> Result<Self> {
-        if seq.is_empty() {
-            return Err(anyhow!("seq must not be empty."));
+    /// Builds a [`WaveletMatrix`] from a single exact-size iterator.
+    pub fn from_iter<'a, J>(
+        alph_size: usize,
+        ints: J,
+        writer: &mut SectionWriter<'a>,
+    ) -> Result<Self>
+    where
+        J: ExactSizeIterator<Item = usize>,
+    {
+        let len = ints.len();
+        let mut builder = WaveletMatrixBuilder::with_capacity(alph_size, len, writer)?;
+        for (i, x) in ints.enumerate() {
+            builder.set_int(i, x)?;
         }
-
-        let alph_size = seq.iter().max().unwrap() + 1;
-        let alph_width = utils::needed_bits(alph_size);
-
-        let mut zeros = seq;
-        let mut ones = CompactVector::new(alph_width)?.freeze();
-        let mut layers = vec![];
-
-        for depth in 0..alph_width {
-            let mut next_zeros = CompactVectorBuilder::new(alph_width).unwrap();
-            let mut next_ones = CompactVectorBuilder::new(alph_width).unwrap();
-            let mut bv = BitVectorBuilder::new();
-            Self::filter(
-                &zeros,
-                alph_width - depth - 1,
-                &mut next_zeros,
-                &mut next_ones,
-                &mut bv,
-            );
-            Self::filter(
-                &ones,
-                alph_width - depth - 1,
-                &mut next_zeros,
-                &mut next_ones,
-                &mut bv,
-            );
-            zeros = next_zeros.freeze();
-            ones = next_ones.freeze();
-            let bits = bv.freeze::<I>();
-            layers.push(bits);
-        }
-
-        Ok(Self { layers, alph_size })
+        builder.freeze()
     }
+}
 
-    fn filter(
-        seq: &CompactVector,
-        shift: usize,
-        next_zeros: &mut CompactVectorBuilder,
-        next_ones: &mut CompactVectorBuilder,
-        bv: &mut BitVectorBuilder,
-    ) {
-        for val in seq.iter() {
-            let bit = ((val >> shift) & 1) == 1;
-            bv.push_bit(bit);
-            if bit {
-                next_ones.push_int(val).unwrap();
-            } else {
-                next_zeros.push_int(val).unwrap();
-            }
-        }
-    }
-
+impl<I> WaveletMatrix<I>
+where
+    I: BitVectorIndex,
+{
     /// Returns the `pos`-th integer, or [`None`] if `self.len() <= pos`.
     ///
     /// # Arguments
@@ -155,13 +317,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// assert_eq!(wm.access(2), Some('n' as usize));
     /// assert_eq!(wm.access(5), Some('a' as usize));
@@ -205,13 +373,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// assert_eq!(wm.rank(3, 'a' as usize), Some(1));
     /// assert_eq!(wm.rank(5, 'c' as usize), Some(0));
@@ -240,13 +414,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    /// builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// assert_eq!(wm.rank_range(1..4, 'a' as usize), Some(2));
     /// assert_eq!(wm.rank_range(2..4, 'c' as usize), Some(0));
@@ -296,13 +476,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// assert_eq!(wm.select(1, 'a' as usize), Some(3));
     /// assert_eq!(wm.select(0, 'c' as usize), None);
@@ -357,13 +543,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// assert_eq!(wm.quantile(1..4, 0), Some('a' as usize)); // The 0th in "ana" should be "a"
     /// assert_eq!(wm.quantile(1..4, 1), Some('a' as usize)); // The 1st in "ana" should be "a"
@@ -425,13 +617,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    ///  builder.extend("banana".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// // Intersections among "ana", "na", and "ba".
     /// assert_eq!(
@@ -531,13 +729,19 @@ where
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// use jerky::bit_vector::{rank9sel::inner::Rank9SelIndex, BitVector};
+    /// use jerky::bit_vector::Rank9SelIndex;
     /// use jerky::char_sequences::WaveletMatrix;
-    /// use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
+    /// use anybytes::ByteArea;
     ///
-    /// let mut builder = CompactVectorBuilder::new(8)?;
-    ///  builder.extend("ban".chars().map(|c| c as usize))?;
-    /// let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze())?;
+    /// let text = "ban";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
     ///
     /// let mut it = wm.iter();
     /// assert_eq!(it.next(), Some('b' as usize));
@@ -575,28 +779,34 @@ where
         self.layers.len()
     }
 
-    /// Serializes the sequence into a [`Bytes`] buffer along with its metadata.
-    pub fn to_bytes(&self) -> (WaveletMatrixMeta, Bytes) {
-        let mut store: Vec<usize> = Vec::new();
-        for layer in &self.layers {
-            store.extend_from_slice(layer.data.words());
-        }
-        let meta = WaveletMatrixMeta {
-            alph_size: self.alph_size,
-            alph_width: self.alph_width(),
-            len: self.len(),
-        };
-        (meta, Bytes::from_source(store))
+    /// Returns metadata describing this matrix.
+    pub fn metadata(&self) -> WaveletMatrixMeta {
+        <Self as Serializable>::metadata(self)
     }
 
     /// Reconstructs the sequence from metadata and a zero-copy [`Bytes`] buffer.
-    pub fn from_bytes(meta: WaveletMatrixMeta, mut bytes: Bytes) -> Result<Self> {
+    pub fn from_bytes(meta: WaveletMatrixMeta, bytes: Bytes) -> Result<Self> {
+        <Self as Serializable>::from_bytes(meta, bytes)
+    }
+}
+
+impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
+    type Meta = WaveletMatrixMeta;
+
+    fn metadata(&self) -> Self::Meta {
+        WaveletMatrixMeta {
+            alph_size: self.alph_size,
+            alph_width: self.alph_width(),
+            len: self.len(),
+            layers: self.layers_handle,
+        }
+    }
+
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        let handles_view = meta.layers.view(&bytes).map_err(anyhow::Error::from)?;
         let mut layers = Vec::with_capacity(meta.alph_width);
-        let num_words = (meta.len + WORD_LEN - 1) / WORD_LEN;
-        for _ in 0..meta.alph_width {
-            let words = bytes
-                .view_prefix_with_elems::<[usize]>(num_words)
-                .map_err(|e| anyhow!(e))?;
+        for h in handles_view.as_ref() {
+            let words = h.view(&bytes).map_err(anyhow::Error::from)?;
             let data = BitVectorData {
                 words,
                 len: meta.len,
@@ -607,6 +817,7 @@ where
         Ok(Self {
             layers,
             alph_size: meta.alph_size,
+            layers_handle: meta.layers,
         })
     }
 }
@@ -652,10 +863,13 @@ mod test {
     use super::*;
 
     use crate::bit_vector::rank9sel::inner::Rank9SelIndex;
+    use std::iter;
 
     #[test]
     fn test_empty_seq() {
-        let e = WaveletMatrix::<Rank9SelIndex>::new(CompactVector::new(1).unwrap().freeze());
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let e = WaveletMatrix::<Rank9SelIndex>::from_iter(1, iter::empty(), &mut sections);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("seq must not be empty.".to_string())
@@ -666,12 +880,18 @@ mod test {
     fn test_navarro_book() {
         // This test example is from G. Navarro's "Compact Data Structures" P130
         let text = "tobeornottobethatisthequestion";
-        let len = text.chars().count();
+        let len = text.len();
 
-        let mut builder = CompactVectorBuilder::new(8).unwrap();
-        builder.extend(text.chars().map(|c| c as usize)).unwrap();
-        let seq = builder.freeze();
-        let wm = WaveletMatrix::<Rank9SelIndex>::new(seq).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let alph_size = ('u' as usize) + 1;
+        let ints: Vec<usize> = text.bytes().map(|b| b as usize).collect();
+        let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+            alph_size,
+            ints.iter().copied(),
+            &mut sections,
+        )
+        .unwrap();
 
         assert_eq!(wm.len(), len);
         assert_eq!(wm.alph_size(), ('u' as usize) + 1);
@@ -691,13 +911,37 @@ mod test {
     }
 
     #[test]
+    fn builder_sets_ints() {
+        let text = "banana";
+        let alph_size = ('n' as usize) + 1;
+        let ints: Vec<usize> = text.bytes().map(|b| b as usize).collect();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut builder =
+            WaveletMatrixBuilder::with_capacity(alph_size, ints.len(), &mut sections).unwrap();
+        for (i, &x) in ints.iter().enumerate() {
+            builder.set_int(i, x).unwrap();
+        }
+        let wm = builder.freeze::<Rank9SelIndex>().unwrap();
+        assert_eq!(wm.len(), text.len());
+        assert_eq!(wm.access(2), Some('n' as usize));
+    }
+
+    #[test]
     fn from_bytes_roundtrip() {
-        let mut builder = CompactVectorBuilder::new(8).unwrap();
-        builder
-            .extend("banana".chars().map(|c| c as usize))
-            .unwrap();
-        let wm = WaveletMatrix::<Rank9SelIndex>::new(builder.freeze()).unwrap();
-        let (meta, bytes) = wm.to_bytes();
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let text = "banana";
+        let alph_size = ('n' as usize) + 1;
+        let ints: Vec<usize> = text.bytes().map(|b| b as usize).collect();
+        let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+            alph_size,
+            ints.iter().copied(),
+            &mut sections,
+        )
+        .unwrap();
+        let bytes = area.freeze().unwrap();
+        let meta = wm.metadata();
         let other = WaveletMatrix::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
         assert_eq!(wm, other);
     }
