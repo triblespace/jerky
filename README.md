@@ -28,7 +28,7 @@ RUSTDOCFLAGS="--html-in-header katex.html" cargo doc --no-deps
 is backed by `anybytes::View`. Metadata describing a stored sequence includes
 [`SectionHandle`](anybytes::area::SectionHandle)s so the raw
 `Bytes` returned by `ByteArea::freeze` can be handed to
-`BitVectorData::from_bytes` for zero‑copy reconstruction.
+`BitVectorData::from_bytes` with its `BitVectorDataMeta` for zero‑copy reconstruction.
 
 Types following this pattern implement the [`Serializable`](src/serialization.rs) trait,
 which exposes a `metadata` accessor and a `from_bytes` constructor.

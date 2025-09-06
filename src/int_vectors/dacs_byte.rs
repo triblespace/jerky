@@ -354,16 +354,15 @@ impl<I: BitVectorIndex> Serializable for DacsByte<I> {
         let mut data = Vec::with_capacity(meta.num_levels);
         for (idx, info) in infos.as_ref().iter().enumerate() {
             if idx + 1 < meta.num_levels {
-                let words = info.flag.view(&bytes).map_err(anyhow::Error::from)?;
-                let bv_data = bit_vector::BitVectorData {
-                    words,
-                    len: info.flag_bits,
-                };
+                let bv_data = bit_vector::BitVectorData::from_bytes(
+                    bit_vector::BitVectorDataMeta {
+                        len: info.flag_bits,
+                        handle: info.flag,
+                    },
+                    bytes.clone(),
+                )?;
                 let index = I::build(&bv_data);
-                flags.push(bit_vector::BitVector {
-                    data: bv_data,
-                    index,
-                });
+                flags.push(bit_vector::BitVector::new(bv_data, index));
             }
             let lvl_view = info.level.view(&bytes).map_err(anyhow::Error::from)?;
             data.push(lvl_view);

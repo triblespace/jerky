@@ -5,8 +5,7 @@ use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 use std::iter::ExactSizeIterator;
 
-use crate::bit_vector::BitVectorBuilder;
-use crate::bit_vector::{BitVector, BitVectorData, NoIndex};
+use crate::bit_vector::{BitVector, BitVectorBuilder, BitVectorData, BitVectorDataMeta, NoIndex};
 use crate::int_vectors::prelude::*;
 use crate::serialization::Serializable;
 use crate::utils;
@@ -136,13 +135,11 @@ impl<'a> CompactVectorBuilder<'a> {
     /// # }
     /// ```
     pub fn freeze(self) -> CompactVector {
-        let handle = self.chunks.handle();
         let chunks: BitVector<NoIndex> = self.chunks.freeze::<NoIndex>();
         CompactVector {
             chunks,
             len: self.len,
             width: self.width,
-            handle,
         }
     }
 }
@@ -178,16 +175,11 @@ pub struct CompactVector {
     chunks: BitVector<NoIndex>,
     len: usize,
     width: usize,
-    handle: SectionHandle<u64>,
 }
 
 impl PartialEq for CompactVector {
     fn eq(&self, other: &Self) -> bool {
-        self.chunks == other.chunks
-            && self.len == other.len
-            && self.width == other.width
-            && self.handle.offset == other.handle.offset
-            && self.handle.len == other.handle.len
+        self.chunks == other.chunks && self.len == other.len && self.width == other.width
     }
 }
 
@@ -198,13 +190,11 @@ impl Default for CompactVector {
         let mut area = ByteArea::new().expect("byte area");
         let mut sections = area.sections();
         let builder = BitVectorBuilder::with_capacity(0, &mut sections).unwrap();
-        let handle = builder.handle();
         let chunks = builder.freeze::<NoIndex>();
         Self {
             chunks,
             len: 0,
             width: 0,
-            handle,
         }
     }
 }
@@ -455,23 +445,24 @@ impl Serializable for CompactVector {
         CompactVectorMeta {
             len: self.len,
             width: self.width,
-            handle: self.handle,
+            handle: self.chunks.handle().expect("missing handle"),
         }
     }
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
         let data_len = meta.len * meta.width;
-        let words_view = meta.handle.view(&bytes).map_err(|e| anyhow!(e))?;
-        let data = BitVectorData {
-            words: words_view,
-            len: data_len,
-        };
+        let data = BitVectorData::from_bytes(
+            BitVectorDataMeta {
+                len: data_len,
+                handle: meta.handle,
+            },
+            bytes,
+        )?;
         let chunks = BitVector::new(data, NoIndex);
         Ok(Self {
             chunks,
             len: meta.len,
             width: meta.width,
-            handle: meta.handle,
         })
     }
 }
