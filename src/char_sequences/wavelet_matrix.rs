@@ -8,7 +8,8 @@ use anybytes::{area::SectionHandle, ByteArea, Bytes, Section, SectionWriter};
 use anyhow::{anyhow, Result};
 
 use crate::bit_vector::{
-    Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorIndex, NumBits, Rank, Select,
+    Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorDataMeta, BitVectorIndex, NumBits,
+    Rank, Select,
 };
 use crate::serialization::Serializable;
 use crate::utils;
@@ -806,11 +807,13 @@ impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
         let handles_view = meta.layers.view(&bytes).map_err(anyhow::Error::from)?;
         let mut layers = Vec::with_capacity(meta.alph_width);
         for h in handles_view.as_ref() {
-            let words = h.view(&bytes).map_err(anyhow::Error::from)?;
-            let data = BitVectorData {
-                words,
-                len: meta.len,
-            };
+            let data = BitVectorData::from_bytes(
+                BitVectorDataMeta {
+                    len: meta.len,
+                    handle: *h,
+                },
+                bytes.clone(),
+            )?;
             let index = I::build(&data);
             layers.push(BitVector::new(data, index));
         }

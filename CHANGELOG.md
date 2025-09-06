@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Embedded section handles in `BitVectorData` and added `BitVectorDataMeta` with
+  `Serializable` support for both `BitVectorData` and `BitVector`, enabling
+  zero-copy reconstruction from arena metadata.
 - Introduced a `Serializable` trait for metadata-based reconstruction and
   implemented it for `CompactVector`, `DacsByte`, and `WaveletMatrix`.
 - Audited `DacsByte` and `WaveletMatrix` to leverage `SectionHandle::view`

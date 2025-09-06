@@ -126,6 +126,7 @@ pub trait Select {
 /// The number of bits in a machine word.
 pub const WORD_LEN: usize = core::mem::size_of::<u64>() * 8;
 
+use crate::serialization::Serializable;
 use anybytes::{area::SectionHandle, ByteArea, Bytes, Section, SectionWriter, View};
 use anyhow::{anyhow, Result};
 
@@ -296,11 +297,13 @@ impl<'a> BitVectorBuilder<'a> {
     }
 
     fn into_data(self) -> BitVectorData {
+        let handle = self.words.handle();
         let words_bytes = self.words.freeze().expect("freeze section");
         let words = words_bytes.view::<[u64]>().unwrap();
         BitVectorData {
             words,
             len: self.len,
+            handle: Some(handle),
         }
     }
 
@@ -318,12 +321,31 @@ impl<'a> BitVectorBuilder<'a> {
 }
 
 /// Immutable bit vector data without auxiliary indexes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BitVectorData {
     /// Underlying machine words storing bit data.
     pub words: View<[u64]>,
     /// Number of valid bits in `words`.
     pub len: usize,
+    /// Handle to the backing words section, if available.
+    pub handle: Option<SectionHandle<u64>>,
+}
+
+impl PartialEq for BitVectorData {
+    fn eq(&self, other: &Self) -> bool {
+        self.words == other.words && self.len == other.len
+    }
+}
+
+impl Eq for BitVectorData {}
+
+/// Metadata describing a [`BitVectorData`] stored in a [`ByteArea`].
+#[derive(Debug, Clone, Copy)]
+pub struct BitVectorDataMeta {
+    /// Number of bits stored.
+    pub len: usize,
+    /// Handle to the raw `u64` words backing the vector.
+    pub handle: SectionHandle<u64>,
 }
 
 impl Default for BitVectorData {
@@ -331,6 +353,7 @@ impl Default for BitVectorData {
         Self {
             words: Bytes::empty().view::<[u64]>().unwrap(),
             len: 0,
+            handle: None,
         }
     }
 }
@@ -348,10 +371,23 @@ impl BitVectorData {
         builder.into_data()
     }
 
-    /// Reconstructs the data from zero-copy [`Bytes`].
-    pub fn from_bytes(len: usize, bytes: Bytes) -> Result<Self> {
-        let words = bytes.view::<[u64]>().map_err(|e| anyhow::anyhow!(e))?;
-        Ok(Self { words, len })
+    /// Serializes the data into a [`Bytes`] buffer and accompanying metadata.
+    /// Returns metadata describing this data.
+    pub fn metadata(&self) -> BitVectorDataMeta {
+        BitVectorDataMeta {
+            len: self.len,
+            handle: self.handle.expect("missing handle"),
+        }
+    }
+
+    /// Reconstructs the data from zero-copy [`Bytes`] and its metadata.
+    pub fn from_bytes(meta: BitVectorDataMeta, bytes: Bytes) -> Result<Self> {
+        let words = meta.handle.view(&bytes).map_err(|e| anyhow::anyhow!(e))?;
+        Ok(Self {
+            words,
+            len: meta.len,
+            handle: Some(meta.handle),
+        })
     }
 
     /// Returns the number of bits stored.
@@ -390,6 +426,18 @@ impl BitVectorData {
             (self.words[block] >> shift) | ((self.words[block + 1] << (WORD_LEN - shift)) & mask)
         };
         Some(bits as usize)
+    }
+}
+
+impl Serializable for BitVectorData {
+    type Meta = BitVectorDataMeta;
+
+    fn metadata(&self) -> Self::Meta {
+        BitVectorData::metadata(self)
+    }
+
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        BitVectorData::from_bytes(meta, bytes)
     }
 }
 
@@ -514,13 +562,21 @@ impl BitVectorIndex for NoIndex {
 }
 
 /// Immutable bit vector data combined with an auxiliary index.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct BitVector<I> {
     /// Raw data bits.
     pub data: BitVectorData,
     /// Associated index.
     pub index: I,
 }
+
+impl<I: PartialEq> PartialEq for BitVector<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data && self.index == other.index
+    }
+}
+
+impl<I: Eq> Eq for BitVector<I> {}
 
 /// Iterator over bits in a [`BitVector`].
 pub struct Iter<'a, I> {
@@ -578,6 +634,11 @@ impl<I> BitVector<I> {
     pub fn to_vec(&self) -> Vec<bool> {
         self.iter().collect()
     }
+
+    /// Returns the handle to the backing words section, if available.
+    pub fn handle(&self) -> Option<SectionHandle<u64>> {
+        self.data.handle
+    }
 }
 
 impl<I: BitVectorIndex> NumBits for BitVector<I> {
@@ -613,6 +674,33 @@ impl<I: BitVectorIndex> Select for BitVector<I> {
 
     fn select0(&self, k: usize) -> Option<usize> {
         self.index.select0(&self.data, k)
+    }
+}
+
+impl<I: BitVectorIndex> BitVector<I> {
+    /// Serializes the vector into a [`Bytes`] buffer and accompanying metadata.
+    /// Returns metadata describing this vector's data.
+    pub fn metadata(&self) -> BitVectorDataMeta {
+        <Self as Serializable>::metadata(self)
+    }
+
+    /// Reconstructs the vector from zero-copy [`Bytes`] and its metadata.
+    pub fn from_bytes(meta: BitVectorDataMeta, bytes: Bytes) -> Result<Self> {
+        <Self as Serializable>::from_bytes(meta, bytes)
+    }
+}
+
+impl<I: BitVectorIndex> Serializable for BitVector<I> {
+    type Meta = BitVectorDataMeta;
+
+    fn metadata(&self) -> Self::Meta {
+        self.data.metadata()
+    }
+
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        let data = BitVectorData::from_bytes(meta, bytes)?;
+        let index = I::build(&data);
+        Ok(BitVector::new(data, index))
     }
 }
 
@@ -659,10 +747,9 @@ mod tests {
         let expected: BitVector<NoIndex> =
             BitVectorData::from_bits([true, false, true, true, false]).into();
         let bv: BitVector<NoIndex> = builder.freeze::<NoIndex>();
-        let len = bv.data.len;
-        let bytes = bv.data.words.clone().bytes();
-        let data = BitVectorData::from_bytes(len, bytes).unwrap();
-        let other: BitVector<NoIndex> = data.into();
+        let meta = bv.metadata();
+        let bytes = area.freeze().unwrap();
+        let other: BitVector<NoIndex> = BitVector::from_bytes(meta, bytes).unwrap();
         assert_eq!(expected, other);
     }
 
