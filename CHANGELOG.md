@@ -130,3 +130,5 @@
   `DacsByteMeta` to reference a single handle slice like `WaveletMatrixMeta`.
 - Expanded examples and README with `ByteArea`/`SectionHandle` metadata
   reconstruction for set-based APIs, adding a `dacs_byte` usage demo.
+- Added a `Metadata` marker trait to ensure metadata structs implement the
+  necessary zero-copy traits for safe byte serialization.

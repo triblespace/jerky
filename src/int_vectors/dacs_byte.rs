@@ -11,7 +11,7 @@ use crate::int_vectors::{Access, Build, NumVals};
 use crate::serialization::Serializable;
 use crate::utils;
 use anybytes::{area::SectionHandle, ByteArea, Bytes, SectionWriter, View};
-use zerocopy::{FromBytes, Immutable};
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
@@ -79,7 +79,8 @@ impl<I: PartialEq> PartialEq for DacsByte<I> {
 impl<I: Eq> Eq for DacsByte<I> {}
 
 /// Per-level metadata storing handles for payload bytes and flag bit vectors.
-#[derive(Debug, Clone, Copy, FromBytes, Immutable)]
+#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
+#[repr(C)]
 pub struct LevelMeta {
     /// Handle to the level's payload bytes.
     pub level: SectionHandle<u8>,
@@ -90,7 +91,8 @@ pub struct LevelMeta {
 }
 
 /// Metadata required to reconstruct a `DacsByte` from bytes.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
+#[repr(C)]
 pub struct DacsByteMeta {
     /// Number of valid levels stored.
     pub num_levels: usize,

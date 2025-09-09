@@ -200,7 +200,8 @@ impl Default for CompactVector {
 }
 
 /// Metadata describing a [`CompactVector`] stored in a [`ByteArea`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, zerocopy::FromBytes, zerocopy::KnownLayout, zerocopy::Immutable)]
+#[repr(C)]
 pub struct CompactVectorMeta {
     /// Number of integers stored.
     pub len: usize,
