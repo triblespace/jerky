@@ -47,6 +47,8 @@
   manual offset math in complex `from_bytes` implementations like `DacsByte`.
 - Investigate slimming `DacsByte` per-level metadata to avoid storing unused
   flag handles for the last level.
+- Provide a derive macro for the new `Metadata` trait to simplify implementing
+  zero-copy metadata structs.
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
 - Revisit zero-copy storage strategy: avoid extra copies when storing serialized bytes in structures.

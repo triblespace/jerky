@@ -78,7 +78,8 @@ impl<I: PartialEq> PartialEq for WaveletMatrix<I> {
 impl<I: Eq> Eq for WaveletMatrix<I> {}
 
 /// Metadata describing the serialized form of a [`WaveletMatrix`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, zerocopy::FromBytes, zerocopy::KnownLayout, zerocopy::Immutable)]
+#[repr(C)]
 pub struct WaveletMatrixMeta {
     /// Maximum value + 1 stored in the matrix.
     pub alph_size: usize,

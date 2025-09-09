@@ -340,7 +340,8 @@ impl PartialEq for BitVectorData {
 impl Eq for BitVectorData {}
 
 /// Metadata describing a [`BitVectorData`] stored in a [`ByteArea`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, zerocopy::FromBytes, zerocopy::KnownLayout, zerocopy::Immutable)]
+#[repr(C)]
 pub struct BitVectorDataMeta {
     /// Number of bits stored.
     pub len: usize,

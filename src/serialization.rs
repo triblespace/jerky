@@ -3,6 +3,16 @@
 use anybytes::Bytes;
 use anyhow::Result;
 
+/// Marker trait for metadata structures that can be safely written to and
+/// read from bytes.
+///
+/// Types implementing this trait satisfy the requirements from `zerocopy` and
+/// `anybytes` for zero-copy serialization. It is automatically implemented for
+/// any type that implements the necessary `zerocopy` traits.
+pub trait Metadata: zerocopy::FromBytes + zerocopy::KnownLayout + zerocopy::Immutable {}
+
+impl<T> Metadata for T where T: zerocopy::FromBytes + zerocopy::KnownLayout + zerocopy::Immutable {}
+
 /// Types that can be reconstructed from frozen [`Bytes`] using metadata.
 ///
 /// Implementors write their data into a [`ByteArea`](anybytes::ByteArea) and
@@ -11,7 +21,7 @@ use anyhow::Result;
 /// copying.
 pub trait Serializable: Sized {
     /// Metadata describing the byte layout required to reconstruct `Self`.
-    type Meta;
+    type Meta: Metadata;
 
     /// Returns metadata for this instance.
     fn metadata(&self) -> Self::Meta;
