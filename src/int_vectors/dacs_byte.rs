@@ -3,22 +3,15 @@
 
 use std::convert::TryFrom;
 
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 
-use crate::bit_vector::BitVector;
-use crate::bit_vector::BitVectorBuilder;
-use crate::bit_vector::BitVectorIndex;
-use crate::bit_vector::Rank;
-use crate::bit_vector::Rank9SelIndex;
-use crate::bit_vector::{self};
-use crate::int_vectors::Access;
-use crate::int_vectors::Build;
-use crate::int_vectors::NumVals;
+use crate::bit_vector::{self, BitVector, BitVectorBuilder, BitVectorIndex, Rank, Rank9SelIndex};
+use crate::int_vectors::{Access, Build, NumVals};
+use crate::serialization::Serializable;
 use crate::utils;
-use anybytes::Bytes;
-use anybytes::View;
+use anybytes::{area::SectionHandle, ByteArea, Bytes, SectionWriter, View};
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
@@ -45,18 +38,20 @@ const MAX_LEVELS: usize = (usize::BITS as usize + LEVEL_WIDTH - 1) / LEVEL_WIDTH
 ///
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use jerky::int_vectors::{DacsByte, Access};
-///
+/// use anybytes::ByteArea;
+/// use jerky::int_vectors::{Access, DacsByte};
 /// use jerky::bit_vector::rank9sel::Rank9SelIndex;
-/// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334])?;
+/// let mut area = ByteArea::new()?;
+/// let mut writer = area.sections();
+/// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334], &mut writer)?;
+/// let meta = seq.metadata();
+/// let bytes = area.freeze()?; // finalize arena
+/// let other = DacsByte::<Rank9SelIndex>::from_bytes(meta, bytes.clone())?;
+/// assert_eq!(seq, other);
+/// assert_eq!(other.access(2), Some(100000));
 ///
-/// assert_eq!(seq.access(0), Some(5));
-/// assert_eq!(seq.access(1), Some(0));
-/// assert_eq!(seq.access(2), Some(100000));
-/// assert_eq!(seq.access(3), Some(334));
-///
-/// assert_eq!(seq.len(), 4);
-/// assert_eq!(seq.num_levels(), 3);
+/// assert_eq!(other.len(), 4);
+/// assert_eq!(other.num_levels(), 3);
 /// # Ok(())
 /// # }
 /// ```
@@ -65,30 +60,44 @@ const MAX_LEVELS: usize = (usize::BITS as usize + LEVEL_WIDTH - 1) / LEVEL_WIDTH
 ///
 /// - N. R. Brisaboa, S. Ladra, and G. Navarro, "DACs: Bringing direct access to variable-length
 ///   codes." Information Processing & Management, 49(1), 392-404, 2013.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct DacsByte<I = Rank9SelIndex> {
     data: Vec<View<[u8]>>,
     flags: Vec<BitVector<I>>,
+    handles: SectionHandle<LevelMeta>,
+}
+
+impl<I: PartialEq> PartialEq for DacsByte<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+            && self.flags == other.flags
+            && self.handles.offset == other.handles.offset
+            && self.handles.len == other.handles.len
+    }
+}
+
+impl<I: Eq> Eq for DacsByte<I> {}
+
+/// Per-level metadata storing handles for payload bytes and flag bit vectors.
+#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
+#[repr(C)]
+pub struct LevelMeta {
+    /// Handle to the level's payload bytes.
+    pub level: SectionHandle<u8>,
+    /// Handle to the flag bit vector words (empty for last level).
+    pub flag: SectionHandle<u64>,
+    /// Number of bits stored in the flag bit vector.
+    pub flag_bits: usize,
 }
 
 /// Metadata required to reconstruct a `DacsByte` from bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
+#[repr(C)]
 pub struct DacsByteMeta {
     /// Number of valid levels stored.
     pub num_levels: usize,
-    /// Byte length for each level in order.
-    pub level_lens: Vec<usize>,
-    /// Metadata for each flag bit vector between levels.
-    pub flag_meta: Vec<FlagMeta>,
-}
-
-/// Metadata describing a flag bit vector stored inside a `DacsByte`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct FlagMeta {
-    /// Number of bits stored in the bit vector.
-    pub len_bits: usize,
-    /// Number of machine words used to hold the bits.
-    pub num_words: usize,
+    /// Handle to a slice of per-level [`LevelMeta`] structures.
+    pub levels: SectionHandle<LevelMeta>,
 }
 
 impl<I: BitVectorIndex> DacsByte<I> {
@@ -97,18 +106,38 @@ impl<I: BitVectorIndex> DacsByte<I> {
     /// # Arguments
     ///
     /// - `vals`: Slice of integers to be stored.
+    /// - `writer`: Memory allocator used for all internal buffers.
     ///
     /// # Errors
     ///
     /// An error is returned if `vals` contains an integer that cannot be cast to [`usize`].
-    pub fn from_slice<T>(vals: &[T]) -> Result<Self>
+    pub fn from_slice<'a, T>(vals: &[T], writer: &mut SectionWriter<'a>) -> Result<Self>
     where
         T: ToPrimitive,
     {
         if vals.is_empty() {
-            return Ok(Self::default());
+            let data_sec = writer.reserve::<u8>(0)?;
+            let data_handle = data_sec.handle();
+            let flag_sec = writer.reserve::<u64>(0)?;
+            let flag_handle = flag_sec.handle();
+            let mut infos = writer.reserve::<LevelMeta>(1)?;
+            infos[0] = LevelMeta {
+                level: data_handle,
+                flag: flag_handle,
+                flag_bits: 0,
+            };
+            let handles = infos.handle();
+            infos.freeze()?;
+            flag_sec.freeze()?;
+            data_sec.freeze()?;
+            return Ok(Self {
+                data: vec![Bytes::empty().view::<[u8]>().unwrap()],
+                flags: vec![],
+                handles,
+            });
         }
 
+        // Determine the number of levels by scanning for the maximum value.
         let mut maxv = 0;
         for x in vals {
             maxv =
@@ -120,42 +149,119 @@ impl<I: BitVectorIndex> DacsByte<I> {
         let num_levels = utils::ceiled_divide(num_bits, LEVEL_WIDTH);
         assert_ne!(num_levels, 0);
 
+        // Single-level case: just reserve the bytes and return.
         if num_levels == 1 {
-            let data: Vec<_> = vals
-                .iter()
-                .map(|x| u8::try_from(x.to_usize().unwrap()).unwrap())
-                .collect();
+            let mut section = writer.reserve::<u8>(vals.len())?;
+            let slice = section.as_mut_slice();
+            for (i, x) in vals.iter().enumerate() {
+                slice[i] = u8::try_from(x.to_usize().unwrap()).unwrap();
+            }
+            let level_handle = section.handle();
+            let flag_sec = writer.reserve::<u64>(0)?;
+            let flag_handle = flag_sec.handle();
+            let mut infos = writer.reserve::<LevelMeta>(1)?;
+            infos[0] = LevelMeta {
+                level: level_handle,
+                flag: flag_handle,
+                flag_bits: 0,
+            };
+            let handles = infos.handle();
+            infos.freeze()?;
+            flag_sec.freeze()?;
+            let data = section.freeze()?.view::<[u8]>()?;
             return Ok(Self {
-                data: vec![Bytes::from_source(data).view::<[u8]>().unwrap()],
+                data: vec![data],
                 flags: vec![],
+                handles,
             });
         }
 
-        let mut data = vec![vec![]; num_levels];
-        let mut flags = vec![BitVectorBuilder::new(); num_levels - 1];
+        // First pass: count flags per level and determine payload lengths.
+        let mut flag_counts = vec![0usize; num_levels - 1];
+        let mut level_lens = vec![0usize; num_levels];
+        for val in vals {
+            let mut x = val
+                .to_usize()
+                .ok_or_else(|| anyhow!("vals must consist only of values castable into usize."))?;
+            let mut j = 0;
+            loop {
+                level_lens[j] += 1;
+                if j == num_levels - 1 {
+                    break;
+                }
+                x >>= LEVEL_WIDTH;
+                flag_counts[j] += 1;
+                if x == 0 {
+                    break;
+                }
+                j += 1;
+            }
+        }
+        // Allocate metadata table, level sections, flag builders, and a dummy flag handle.
+        let mut infos = writer.reserve::<LevelMeta>(num_levels)?;
+        let mut flags: Vec<BitVectorBuilder> = flag_counts
+            .iter()
+            .map(|&c| BitVectorBuilder::with_capacity(c, writer))
+            .collect::<Result<_, _>>()?;
+        let dummy_flag_sec = writer.reserve::<u64>(0)?;
+        let dummy_flag_handle = dummy_flag_sec.handle();
+        let mut levels: Vec<_> = level_lens
+            .iter()
+            .map(|&len| writer.reserve::<u8>(len))
+            .collect::<Result<_, _>>()?;
+        for j in 0..num_levels {
+            let mut meta = LevelMeta {
+                level: levels[j].handle(),
+                flag: dummy_flag_handle,
+                flag_bits: 0,
+            };
+            if j + 1 < num_levels {
+                meta.flag = flags[j].handle();
+                meta.flag_bits = flag_counts[j];
+            }
+            infos[j] = meta;
+        }
+        dummy_flag_sec.freeze()?;
 
-        for x in vals {
-            let mut x = x.to_usize().unwrap();
+        // Offsets for writing into levels and flags.
+        let mut level_offs = vec![0usize; num_levels];
+        let mut flag_offs = vec![0usize; num_levels - 1];
+
+        // Second pass: populate levels and flags in place.
+        for val in vals {
+            let mut x = val.to_usize().unwrap();
             for j in 0..num_levels {
-                data[j].push(u8::try_from(x & LEVEL_MASK).unwrap());
+                levels[j].as_mut_slice()[level_offs[j]] = u8::try_from(x & LEVEL_MASK).unwrap();
+                level_offs[j] += 1;
                 x >>= LEVEL_WIDTH;
                 if j == num_levels - 1 {
                     assert_eq!(x, 0);
                     break;
                 } else if x == 0 {
-                    flags[j].push_bit(false);
+                    flags[j].set_bit(flag_offs[j], false)?;
+                    flag_offs[j] += 1;
                     break;
+                } else {
+                    flags[j].set_bit(flag_offs[j], true)?;
+                    flag_offs[j] += 1;
                 }
-                flags[j].push_bit(true);
             }
         }
 
-        let flags = flags.into_iter().map(|bvb| bvb.freeze::<I>()).collect();
-        let data = data
+        // Freeze level sections, flag builders, and metadata table.
+        let data = levels
             .into_iter()
-            .map(|v| Bytes::from_source(v).view::<[u8]>().unwrap())
-            .collect();
-        Ok(Self { data, flags })
+            .map(|sec| sec.freeze()?.view::<[u8]>().map_err(|e| anyhow!(e)))
+            .collect::<Result<Vec<_>>>()?;
+        let flags = flags.into_iter().map(|bvb| bvb.freeze::<I>()).collect();
+        let handles = infos.handle();
+        infos.freeze()?;
+
+        Ok(Self {
+            data,
+            flags,
+            handles,
+        })
     }
 
     /// Creates an iterator for enumerating integers.
@@ -164,10 +270,14 @@ impl<I: BitVectorIndex> DacsByte<I> {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use anybytes::ByteArea;
     /// use jerky::bit_vector::rank9sel::Rank9SelIndex;
     /// use jerky::int_vectors::DacsByte;
     ///
-    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334])?;
+    /// let mut area = ByteArea::new()?;
+    /// let mut writer = area.sections();
+    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334], &mut writer)?;
+    /// area.freeze()?;
     /// let mut it = seq.iter();
     ///
     /// assert_eq!(it.next(), Some(5));
@@ -211,102 +321,85 @@ impl<I: BitVectorIndex> DacsByte<I> {
         self.data.iter().map(|_| LEVEL_WIDTH).collect()
     }
 
-    /// Serializes the sequence into a [`Bytes`] buffer.
-    ///
-    /// Returns the metadata necessary for [`from_bytes`].
-    pub fn to_bytes(&self) -> (DacsByteMeta, Bytes) {
-        let level_lens = self.data.iter().map(|v| v.len()).collect::<Vec<_>>();
-        let flag_meta = self
-            .flags
-            .iter()
-            .map(|f| FlagMeta {
-                len_bits: f.data.len,
-                num_words: f.data.num_words(),
-            })
-            .collect::<Vec<_>>();
-
-        let mut buf: Vec<u8> = Vec::new();
-        for flag in &self.flags {
-            for &word in flag.data.words.as_ref() {
-                buf.extend_from_slice(&word.to_ne_bytes());
-            }
-        }
-
-        for level in &self.data {
-            buf.extend_from_slice(level.as_ref());
-        }
-
-        (
-            DacsByteMeta {
-                num_levels: self.data.len(),
-                level_lens,
-                flag_meta,
-            },
-            Bytes::from_source(buf),
-        )
+    /// Returns metadata describing this sequence.
+    pub fn metadata(&self) -> DacsByteMeta {
+        <Self as Serializable>::metadata(self)
     }
 
     /// Reconstructs the sequence from zero-copy [`Bytes`].
-    ///
-    /// The `meta` argument should come from [`to_bytes`].
     pub fn from_bytes(meta: DacsByteMeta, bytes: Bytes) -> Result<Self> {
-        use std::mem::size_of;
+        <Self as Serializable>::from_bytes(meta, bytes)
+    }
+}
 
-        let usize_size = size_of::<usize>();
-        let mut cursor = 0;
-        let slice = bytes.as_ref();
+impl<I: BitVectorIndex> Serializable for DacsByte<I> {
+    type Meta = DacsByteMeta;
 
-        if meta.num_levels == 0
-            || meta.num_levels > MAX_LEVELS
-            || meta.level_lens.len() != meta.num_levels
-            || meta.flag_meta.len() != meta.num_levels.saturating_sub(1)
-        {
+    fn metadata(&self) -> Self::Meta {
+        DacsByteMeta {
+            num_levels: self.data.len(),
+            levels: self.handles,
+        }
+    }
+
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        if meta.num_levels == 0 || meta.num_levels > MAX_LEVELS {
             return Err(anyhow!("invalid metadata"));
         }
 
-        let mut flags = Vec::with_capacity(meta.flag_meta.len());
-        for fm in &meta.flag_meta {
-            let bytes_len = fm.num_words * usize_size;
-            if cursor + bytes_len > slice.len() {
-                return Err(anyhow!("insufficient bytes"));
-            }
-            let words_view = bytes
-                .slice_to_bytes(&slice[cursor..cursor + bytes_len])
-                .ok_or_else(|| anyhow!("invalid slice"))?
-                .view::<[usize]>()
-                .map_err(|e| anyhow!(e))?;
-            cursor += bytes_len;
-            let data = bit_vector::BitVectorData {
-                words: words_view,
-                len: fm.len_bits,
-            };
-            let index = I::build(&data);
-            flags.push(bit_vector::BitVector { data, index });
+        let infos = meta.levels.view(&bytes).map_err(anyhow::Error::from)?;
+        if infos.as_ref().len() != meta.num_levels {
+            return Err(anyhow!("invalid metadata"));
         }
 
+        let mut flags = Vec::with_capacity(meta.num_levels.saturating_sub(1));
         let mut data = Vec::with_capacity(meta.num_levels);
-        for &len in &meta.level_lens {
-            if cursor + len > slice.len() {
-                return Err(anyhow!("insufficient bytes"));
+        for (idx, info) in infos.as_ref().iter().enumerate() {
+            if idx + 1 < meta.num_levels {
+                let bv_data = bit_vector::BitVectorData::from_bytes(
+                    bit_vector::BitVectorDataMeta {
+                        len: info.flag_bits,
+                        handle: info.flag,
+                    },
+                    bytes.clone(),
+                )?;
+                let index = I::build(&bv_data);
+                flags.push(bit_vector::BitVector::new(bv_data, index));
             }
-            let view_bytes = bytes
-                .slice_to_bytes(&slice[cursor..cursor + len])
-                .ok_or_else(|| anyhow!("invalid slice"))?;
-            let view = view_bytes.view::<[u8]>().map_err(|e| anyhow!(e))?;
-            data.push(view);
-            cursor += len;
+            let lvl_view = info.level.view(&bytes).map_err(anyhow::Error::from)?;
+            data.push(lvl_view);
         }
 
-        Ok(Self { data, flags })
+        Ok(Self {
+            data,
+            flags,
+            handles: meta.levels,
+        })
     }
 }
 
 impl<I: BitVectorIndex> Default for DacsByte<I> {
     fn default() -> Self {
+        let mut area = ByteArea::new().expect("byte area");
+        let mut writer = area.sections();
+        let data_sec = writer.reserve::<u8>(0).expect("reserve section");
+        let data_handle = data_sec.handle();
+        let flag_sec = writer.reserve::<u64>(0).expect("reserve flag");
+        let flag_handle = flag_sec.handle();
+        let mut infos = writer.reserve::<LevelMeta>(1).expect("reserve level meta");
+        infos[0] = LevelMeta {
+            level: data_handle,
+            flag: flag_handle,
+            flag_bits: 0,
+        };
+        let handles = infos.handle();
+        infos.freeze().expect("freeze level meta");
+        flag_sec.freeze().expect("freeze flag");
+        data_sec.freeze().expect("freeze section");
         Self {
-            // Needs a single level at least.
             data: vec![Bytes::empty().view::<[u8]>().unwrap()],
             flags: vec![],
+            handles,
         }
     }
 }
@@ -320,7 +413,12 @@ impl<I: BitVectorIndex> Build for DacsByte<I> {
         T: ToPrimitive,
         Self: Sized,
     {
-        Self::from_slice(vals)
+        let mut area = ByteArea::new()?;
+        let mut writer = area.sections();
+        let seq = Self::from_slice(vals, &mut writer)?;
+        // Ensure the area is sealed so the bytes become immutable.
+        area.freeze()?;
+        Ok(seq)
     }
 }
 
@@ -343,10 +441,14 @@ impl<I: BitVectorIndex> Access for DacsByte<I> {
     ///
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use anybytes::ByteArea;
     /// use jerky::bit_vector::rank9sel::Rank9SelIndex;
     /// use jerky::int_vectors::{DacsByte, Access};
     ///
-    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 999, 334])?;
+    /// let mut area = ByteArea::new()?;
+    /// let mut writer = area.sections();
+    /// let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 999, 334], &mut writer)?;
+    /// area.freeze()?;
     ///
     /// assert_eq!(seq.access(0), Some(5));
     /// assert_eq!(seq.access(1), Some(999));
@@ -419,12 +521,16 @@ impl<I: BitVectorIndex> Iterator for Iter<'_, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anybytes::Bytes;
+    use anybytes::{ByteArea, Bytes};
 
     #[test]
     fn test_basic() {
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
         let seq =
-            DacsByte::<Rank9SelIndex>::from_slice(&[0xFFFF, 0xFF, 0xF, 0xFFFFF, 0xF]).unwrap();
+            DacsByte::<Rank9SelIndex>::from_slice(&[0xFFFF, 0xFF, 0xF, 0xFFFFF, 0xF], &mut writer)
+                .unwrap();
+        area.freeze().unwrap();
 
         let expected = vec![
             Bytes::from_source(vec![0xFFu8, 0xFF, 0xF, 0xFF, 0xF])
@@ -437,11 +543,14 @@ mod tests {
         ];
         assert_eq!(seq.data, expected);
 
-        let mut b = BitVectorBuilder::new();
-        b.extend_bits([true, false, false, true, false]);
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut b = BitVectorBuilder::with_capacity(5, &mut sections).unwrap();
+        b.set_bit(0, true).unwrap();
+        b.set_bit(3, true).unwrap();
         let f0 = b.freeze::<Rank9SelIndex<true, true>>();
-        let mut b = BitVectorBuilder::new();
-        b.extend_bits([false, true]);
+        let mut b = BitVectorBuilder::with_capacity(2, &mut sections).unwrap();
+        b.set_bit(1, true).unwrap();
         let f1 = b.freeze::<Rank9SelIndex<true, true>>();
         assert_eq!(seq.flags, vec![f0, f1]);
 
@@ -459,7 +568,10 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let seq = DacsByte::<Rank9SelIndex>::from_slice::<usize>(&[]).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice::<usize>(&[], &mut writer).unwrap();
+        area.freeze().unwrap();
         assert!(seq.is_empty());
         assert_eq!(seq.len(), 0);
         assert_eq!(seq.num_levels(), 1);
@@ -468,7 +580,10 @@ mod tests {
 
     #[test]
     fn test_all_zeros() {
-        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[0, 0, 0, 0]).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[0, 0, 0, 0], &mut writer).unwrap();
+        area.freeze().unwrap();
         assert!(!seq.is_empty());
         assert_eq!(seq.len(), 4);
         assert_eq!(seq.num_levels(), 1);
@@ -481,28 +596,39 @@ mod tests {
 
     #[test]
     fn iter_collects() {
-        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7]).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7], &mut writer).unwrap();
+        area.freeze().unwrap();
         let collected: Vec<usize> = seq.iter().collect();
         assert_eq!(collected, vec![5, 7]);
     }
 
     #[test]
     fn to_vec_collects() {
-        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7]).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 7], &mut writer).unwrap();
+        area.freeze().unwrap();
         assert_eq!(seq.to_vec(), vec![5, 7]);
     }
 
     #[test]
     fn bytes_roundtrip() {
-        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334]).unwrap();
-        let (meta, bytes) = seq.to_bytes();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let seq = DacsByte::<Rank9SelIndex>::from_slice(&[5, 0, 100000, 334], &mut writer).unwrap();
+        let bytes = area.freeze().unwrap();
+        let meta = seq.metadata();
         let other = DacsByte::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
         assert_eq!(seq, other);
     }
 
     #[test]
     fn test_from_slice_uncastable() {
-        let e = DacsByte::<Rank9SelIndex>::from_slice(&[u128::MAX]);
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let e = DacsByte::<Rank9SelIndex>::from_slice(&[u128::MAX], &mut writer);
         assert_eq!(
             e.err().map(|x| x.to_string()),
             Some("vals must consist only of values castable into usize.".to_string())

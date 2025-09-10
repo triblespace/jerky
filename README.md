@@ -25,17 +25,22 @@ RUSTDOCFLAGS="--html-in-header katex.html" cargo doc --no-deps
 ## Zero-copy bit vectors
 
 `BitVectorBuilder` can build a bit vector whose underlying `BitVectorData`
-is backed by `anybytes::View`. The data can be serialized with
-`BitVectorData::to_bytes` and reconstructed using `BitVectorData::from_bytes`,
-allowing zero-copy loading from an mmap or any other source by passing the
-byte region to `Bytes::from_source`.
+is backed by `anybytes::View`. Metadata describing a stored sequence includes
+[`SectionHandle`](anybytes::area::SectionHandle)s so the raw
+`Bytes` returned by `ByteArea::freeze` can be handed to
+`BitVectorData::from_bytes` with its `BitVectorDataMeta` for zero‑copy reconstruction.
 
-`DacsByte` sequences support a similar interface with `to_bytes` returning
-metadata alongside the byte slice and `from_bytes` rebuilding the sequence
-using that metadata.
+Types following this pattern implement the [`Serializable`](src/serialization.rs) trait,
+which exposes a `metadata` accessor and a `from_bytes` constructor.
+
+`DacsByte` sequences expose a `metadata` method returning a descriptor with a
+handle to a slice of per-level handles. Each entry stores the flag bitvector
+handle (if any), its bit length, and the payload byte handle. `from_bytes`
+rebuilds the sequence using that metadata.
 
 ```text
-Bytes layout from `DacsByte::to_bytes`:
+Bytes layout for a `DacsByte` sequence (current builders place sections
+contiguously, though layout is fully described by the stored handles):
 
 | flag[0] words | flag[1] words | ... | flag[n-2] words | level[0] data | level[1] data | ... | level[n-1] data |
 
@@ -43,30 +48,34 @@ The flag vectors come first and store native-endian `usize` words. The level
 data immediately follows without any padding.
 ```
 
-`CompactVector` offers similar helpers: `CompactVector::to_bytes` returns a
-metadata struct along with the raw bytes, and `CompactVector::from_bytes`
-reconstructs the vector from that information.
+`CompactVector` and `WaveletMatrix` provide the same pattern: call `metadata`
+to obtain a descriptor with the required `SectionHandle`s, then hand both the
+metadata and the full `Bytes` region to `from_bytes`.
 
-`WaveletMatrix` sequences share this layout and can be serialized with
-`WaveletMatrix::to_bytes` (returning metadata and bytes) and reconstructed
-using `WaveletMatrix::from_bytes`.
+For a wavelet matrix the metadata stores a handle to a slice of per-layer
+handles. Each handle in that slice points to the native-endian `usize` words
+forming a single layer. Layers may reside anywhere in the arena and no longer
+need to be contiguous.
 
-The byte buffer returned by `to_bytes` stores each bit-vector layer
-contiguously. Given `num_words = ceil(len / WORD_LEN)`, the layout is:
+```rust
+use anybytes::ByteArea;
+use jerky::int_vectors::{CompactVector, CompactVectorBuilder};
 
+let mut area = ByteArea::new()?;
+let mut sections = area.sections();
+let mut builder = CompactVectorBuilder::with_capacity(3, 3, &mut sections)?;
+builder.set_ints(0..3, [7, 2, 5])?;
+let cv = builder.freeze();
+let meta = cv.metadata();
+let bytes = area.freeze()?;
+let view = CompactVector::from_bytes(meta, bytes.clone())?;
+assert_eq!(view.get_int(1), Some(2));
 ```
-bytes:
-+------------+------------+-----+
-| layer 0    | layer 1    | ... |
-| num_words  | num_words  |     |
-+------------+------------+-----+
-```
-where each segment contains `num_words` consecutive `usize` words for a layer.
 
 ## Examples
 
 See the [examples](examples/) directory for runnable usage demos, including
-`bit_vector`, `wavelet_matrix`, and `compact_vector`.
+`bit_vector`, `compact_vector`, `dacs_byte`, and `wavelet_matrix`.
 
 ## Licensing
 

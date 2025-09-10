@@ -1,3 +1,4 @@
+use anybytes::ByteArea;
 use jerky::bit_vector::{BitVector, BitVectorBuilder, Rank9SelIndex};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
@@ -21,22 +22,30 @@ fn show_memories(p: f64) {
     println!("[p = {p}]");
 
     let bytes = {
-        let mut b = BitVectorBuilder::new();
-        b.extend_bits(bits.iter().cloned());
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut b = BitVectorBuilder::with_capacity(bits.len(), &mut sections).unwrap();
+        for (i, &bv) in bits.iter().enumerate() {
+            b.set_bit(i, bv).unwrap();
+        }
         let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
-        let (len, data) = idx.data.to_bytes();
-        let index = idx.index.to_bytes();
-        data.as_ref().len() + index.as_ref().len() + std::mem::size_of_val(&len)
+        let len = idx.data.len;
+        let data_bytes = idx.data.words.bytes();
+        data_bytes.as_ref().len() + std::mem::size_of_val(&len)
     };
     print_memory("BitVector<Rank9SelIndex>", bytes);
 
     let bytes = {
-        let mut b = BitVectorBuilder::new();
-        b.extend_bits(bits.iter().cloned());
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let mut b = BitVectorBuilder::with_capacity(bits.len(), &mut sections).unwrap();
+        for (i, &bv) in bits.iter().enumerate() {
+            b.set_bit(i, bv).unwrap();
+        }
         let idx: BitVector<Rank9SelIndex> = b.freeze::<Rank9SelIndex>();
-        let (len, data) = idx.data.to_bytes();
-        let index = idx.index.to_bytes();
-        data.as_ref().len() + index.as_ref().len() + std::mem::size_of_val(&len)
+        let len = idx.data.len;
+        let data_bytes = idx.data.words.bytes();
+        data_bytes.as_ref().len() + std::mem::size_of_val(&len)
     };
     print_memory("BitVector<Rank9SelIndex> (with select hints)", bytes);
 }

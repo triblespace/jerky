@@ -7,6 +7,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, Criterion, SamplingMode,
 };
 
+use anybytes::ByteArea;
 use jerky::int_vectors::Access;
 
 const SAMPLE_SIZE: usize = 30;
@@ -87,7 +88,10 @@ fn perform_intvec_access(group: &mut BenchmarkGroup<WallTime>, vals: &[u32]) {
     });
 
     group.bench_function("jerky/DacsByte", |b| {
-        let idx = jerky::int_vectors::DacsByte::from_slice(vals).unwrap();
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let idx = jerky::int_vectors::DacsByte::from_slice(vals, &mut writer).unwrap();
+        area.freeze().unwrap();
         b.iter(|| run_queries(&idx, &queries));
     });
 }

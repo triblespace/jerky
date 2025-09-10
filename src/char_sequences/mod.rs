@@ -34,4 +34,4 @@
 //! For simplicity, the above table assumes constant-time and linear-space implementation.
 pub mod wavelet_matrix;
 
-pub use wavelet_matrix::WaveletMatrix;
+pub use wavelet_matrix::{WaveletMatrix, WaveletMatrixBuilder};

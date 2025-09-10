@@ -56,6 +56,7 @@ pub mod char_sequences;
 pub mod data;
 pub mod int_vectors;
 mod intrinsics;
+pub mod serialization;
 pub mod utils;
 
 pub use bit_vector::BitVector;
@@ -63,6 +64,7 @@ pub use bit_vector::BitVectorData;
 pub use bit_vector::BitVectorIndex;
 pub use bit_vector::NoIndex;
 pub use data::IntVectorData;
+pub use serialization::Serializable;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std
 // containers with different type annotations.

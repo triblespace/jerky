@@ -351,13 +351,13 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
         let mut cur_rank = self.block_rank(block);
         debug_assert!(cur_rank <= k);
 
-        let rank_in_block_parallel = (k - cur_rank) * broadword::ONES_STEP_9;
-        let sub_ranks = self.sub_block_ranks(block);
-        let sub_block_offset = (broadword::uleq_step_9(sub_ranks, rank_in_block_parallel)
+        let rank_in_block_parallel = (k - cur_rank) as u64 * broadword::ONES_STEP_9;
+        let sub_ranks = self.sub_block_ranks(block) as u64;
+        let sub_block_offset = ((broadword::uleq_step_9(sub_ranks, rank_in_block_parallel)
             .wrapping_mul(broadword::ONES_STEP_9)
             >> 54)
-            & 0x7;
-        cur_rank += (sub_ranks >> (7 - sub_block_offset).wrapping_mul(9)) & 0x1FF;
+            & 0x7) as usize;
+        cur_rank += ((sub_ranks >> (7 - sub_block_offset).wrapping_mul(9)) & 0x1FF) as usize;
         debug_assert!(cur_rank <= k);
 
         let word_offset = block_offset + sub_block_offset;
@@ -424,13 +424,13 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
         let mut cur_rank = self.block_rank0(block);
         debug_assert!(cur_rank <= k);
 
-        let rank_in_block_parallel = (k - cur_rank) * broadword::ONES_STEP_9;
-        let sub_ranks = 64 * broadword::INV_COUNT_STEP_9 - self.sub_block_ranks(block);
-        let sub_block_offset = (broadword::uleq_step_9(sub_ranks, rank_in_block_parallel)
+        let rank_in_block_parallel = (k - cur_rank) as u64 * broadword::ONES_STEP_9;
+        let sub_ranks = 64u64 * broadword::INV_COUNT_STEP_9 - self.sub_block_ranks(block) as u64;
+        let sub_block_offset = ((broadword::uleq_step_9(sub_ranks, rank_in_block_parallel)
             .wrapping_mul(broadword::ONES_STEP_9)
             >> 54)
-            & 0x7;
-        cur_rank += (sub_ranks >> (7 - sub_block_offset).wrapping_mul(9)) & 0x1FF;
+            & 0x7) as usize;
+        cur_rank += ((sub_ranks >> (7 - sub_block_offset).wrapping_mul(9)) & 0x1FF) as usize;
         debug_assert!(cur_rank <= k);
 
         let word_offset = block_offset + sub_block_offset;
@@ -494,29 +494,6 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
             select0_hints,
         })
     }
-
-    /// Serializes the index metadata and data into a [`Bytes`] buffer.
-    pub fn to_bytes(&self) -> Bytes {
-        let mut store: Vec<usize> = Vec::new();
-        store.push(self.len);
-        store.push(self.block_rank_pairs.len());
-        store.extend_from_slice(self.block_rank_pairs.as_ref());
-        if let Some(ref v) = self.select1_hints {
-            store.push(1);
-            store.push(v.len());
-            store.extend_from_slice(v.as_ref());
-        } else {
-            store.push(0);
-        }
-        if let Some(ref v) = self.select0_hints {
-            store.push(1);
-            store.push(v.len());
-            store.extend_from_slice(v.as_ref());
-        } else {
-            store.push(0);
-        }
-        Bytes::from_source(store)
-    }
 }
 
 impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::BitVectorIndex
@@ -553,15 +530,6 @@ impl<const SELECT1: bool, const SELECT0: bool> crate::bit_vector::BitVectorIndex
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_zero_copy_from_to_bytes() {
-        let data = BitVectorData::from_bits([false, true, true, false, true]);
-        let idx = Rank9SelIndex::<true, true>::new(&data);
-        let bytes = idx.to_bytes();
-        let other = Rank9SelIndex::<true, true>::from_bytes(bytes).unwrap();
-        assert_eq!(idx, other);
-    }
 
     #[test]
     fn test_builder_new_equivalence() {
