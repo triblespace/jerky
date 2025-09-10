@@ -76,7 +76,8 @@ pub mod dacs_byte;
 
 pub mod prelude;
 
-pub use compact_vector::{CompactVector, CompactVectorBuilder};
+pub use compact_vector::CompactVector;
+pub use compact_vector::CompactVectorBuilder;
 pub use dacs_byte::DacsByte;
 
 use anyhow::Result;

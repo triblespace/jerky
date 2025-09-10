@@ -3,13 +3,22 @@
 
 use std::convert::TryFrom;
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use anyhow::Result;
 use num_traits::ToPrimitive;
 
-use crate::bit_vector::{self, BitVector, BitVectorBuilder, BitVectorIndex, Rank, Rank9SelIndex};
-use crate::int_vectors::{Access, Build, NumVals};
+use crate::bit_vector::BitVector;
+use crate::bit_vector::BitVectorBuilder;
+use crate::bit_vector::BitVectorIndex;
+use crate::bit_vector::Rank;
+use crate::bit_vector::Rank9SelIndex;
+use crate::bit_vector::{self};
+use crate::int_vectors::Access;
+use crate::int_vectors::Build;
+use crate::int_vectors::NumVals;
 use crate::utils;
-use anybytes::{Bytes, View};
+use anybytes::Bytes;
+use anybytes::View;
 
 const LEVEL_WIDTH: usize = 8;
 const LEVEL_MASK: usize = (1 << LEVEL_WIDTH) - 1;
@@ -63,7 +72,7 @@ pub struct DacsByte<I = Rank9SelIndex> {
 }
 
 /// Metadata required to reconstruct a `DacsByte` from bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DacsByteMeta {
     /// Number of valid levels stored.
     pub num_levels: usize,
@@ -74,31 +83,12 @@ pub struct DacsByteMeta {
 }
 
 /// Metadata describing a flag bit vector stored inside a `DacsByte`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FlagMeta {
     /// Number of bits stored in the bit vector.
     pub len_bits: usize,
     /// Number of machine words used to hold the bits.
     pub num_words: usize,
-}
-
-impl Default for FlagMeta {
-    fn default() -> Self {
-        Self {
-            len_bits: 0,
-            num_words: 0,
-        }
-    }
-}
-
-impl Default for DacsByteMeta {
-    fn default() -> Self {
-        Self {
-            num_levels: 0,
-            level_lens: Vec::new(),
-            flag_meta: Vec::new(),
-        }
-    }
 }
 
 impl<I: BitVectorIndex> DacsByte<I> {

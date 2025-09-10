@@ -1,11 +1,14 @@
 //! Updatable compact vector in which each integer is represented in a fixed number of bits.
 #![cfg(target_pointer_width = "64")]
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use anyhow::Result;
 use num_traits::ToPrimitive;
 
+use crate::bit_vector::BitVector;
 use crate::bit_vector::BitVectorBuilder;
-use crate::bit_vector::{BitVector, BitVectorData, NoIndex};
+use crate::bit_vector::BitVectorData;
+use crate::bit_vector::NoIndex;
 use crate::int_vectors::prelude::*;
 use crate::utils;
 use anybytes::Bytes;

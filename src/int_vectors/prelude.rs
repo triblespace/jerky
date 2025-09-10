@@ -6,4 +6,6 @@
 //! # #![allow(unused_imports)]
 //! use jerky::int_vectors::prelude::*;
 //! ```
-pub use crate::int_vectors::{Access, Build, NumVals};
+pub use crate::int_vectors::Access;
+pub use crate::int_vectors::Build;
+pub use crate::int_vectors::NumVals;

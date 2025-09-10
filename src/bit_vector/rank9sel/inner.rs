@@ -1,7 +1,8 @@
 //! Internal index structure for [`BitVector<Rank9SelIndex>`](crate::bit_vector::BitVector).
 #![cfg(target_pointer_width = "64")]
 
-use anybytes::{Bytes, View};
+use anybytes::Bytes;
+use anybytes::View;
 
 use anyhow::Result;
 

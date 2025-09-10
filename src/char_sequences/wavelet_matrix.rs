@@ -5,13 +5,20 @@
 use std::ops::Range;
 
 use anybytes::Bytes;
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use anyhow::Result;
 
-use crate::bit_vector::{
-    Access, BitVector, BitVectorBuilder, BitVectorData, BitVectorIndex, NumBits, Rank, Select,
-    WORD_LEN,
-};
-use crate::int_vectors::{CompactVector, CompactVectorBuilder};
+use crate::bit_vector::Access;
+use crate::bit_vector::BitVector;
+use crate::bit_vector::BitVectorBuilder;
+use crate::bit_vector::BitVectorData;
+use crate::bit_vector::BitVectorIndex;
+use crate::bit_vector::NumBits;
+use crate::bit_vector::Rank;
+use crate::bit_vector::Select;
+use crate::bit_vector::WORD_LEN;
+use crate::int_vectors::CompactVector;
+use crate::int_vectors::CompactVectorBuilder;
 use crate::utils;
 
 /// Time- and space-efficient data structure for a sequence of integers,

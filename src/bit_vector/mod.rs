@@ -122,8 +122,10 @@ pub trait Select {
 /// The number of bits in a machine word.
 pub const WORD_LEN: usize = core::mem::size_of::<usize>() * 8;
 
-use anybytes::{Bytes, View};
-use anyhow::{anyhow, Result};
+use anybytes::Bytes;
+use anybytes::View;
+use anyhow::anyhow;
+use anyhow::Result;
 
 /// Builder that collects raw bits into a zero-copy [`BitVector`].
 #[derive(Debug, Default, Clone)]
