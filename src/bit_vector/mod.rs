@@ -127,12 +127,12 @@ pub trait Select {
 pub const WORD_LEN: usize = core::mem::size_of::<u64>() * 8;
 
 use crate::serialization::Serializable;
-use anybytes::area::SectionHandle;
 use anybytes::area::ByteArea;
 use anybytes::area::Section;
+use anybytes::area::SectionHandle;
 use anybytes::area::SectionWriter;
-use anybytes::View;
 use anybytes::Bytes;
+use anybytes::View;
 
 use anyhow::anyhow;
 use anyhow::Result;
