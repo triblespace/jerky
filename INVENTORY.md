@@ -52,3 +52,4 @@
 ## Discovered Issues
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
 - Revisit zero-copy storage strategy: avoid extra copies when storing serialized bytes in structures.
+- Enforce that `DacsByte` always retains at least one level instead of relying on defensive length checks.

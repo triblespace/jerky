@@ -300,7 +300,7 @@ impl<I: BitVectorIndex> DacsByte<I> {
     /// Gets the number of integers.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.data[0].len()
+        self.data.first().map_or(0, |lvl| lvl.len())
     }
 
     /// Checks if the vector is empty.
