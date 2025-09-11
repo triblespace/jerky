@@ -7,9 +7,10 @@ use std::ops::Range;
 
 use anybytes::area::SectionHandle;
 use anybytes::area::ByteArea;
-use anybytes::area::Bytes;
 use anybytes::area::Section;
 use anybytes::area::SectionWriter;
+use anybytes::Bytes;
+
 use anyhow::anyhow;
 use anyhow::Result;
 
@@ -18,12 +19,11 @@ use crate::bit_vector::BitVectorBuilder;
 use crate::bit_vector::BitVectorData;
 use crate::bit_vector::BitVectorDataMeta;
 use crate::bit_vector::BitVectorIndex;
-use crate::bit_vector::NumBits,
+use crate::bit_vector::NumBits;
 use crate::bit_vector::Access;
 use crate::bit_vector::Rank;
 use crate::bit_vector::Select;
 use crate::serialization::Serializable;
-use crate::int_vectors::CompactVectorBuilder;
 use crate::utils;
 
 /// Time- and space-efficient data structure for a sequence of integers,
@@ -765,7 +765,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub const fn iter(&self) -> Iter<I> {
+    pub const fn iter(&'_ self) -> Iter<'_, I> {
         Iter::new(self)
     }
 

@@ -129,10 +129,11 @@ pub const WORD_LEN: usize = core::mem::size_of::<u64>() * 8;
 use crate::serialization::Serializable;
 use anybytes::area::SectionHandle;
 use anybytes::area::ByteArea;
-use anybytes::area::Bytes;
 use anybytes::area::Section;
 use anybytes::area::SectionWriter;
-use anybytes::area::View;
+use anybytes::View;
+use anybytes::Bytes;
+
 use anyhow::anyhow;
 use anyhow::Result;
 
@@ -633,7 +634,7 @@ impl<I> BitVector<I> {
     }
 
     /// Creates an iterator over all bits.
-    pub const fn iter(&self) -> Iter<I> {
+    pub const fn iter(&'_ self) -> Iter<'_, I> {
         Iter { bv: self, pos: 0 }
     }
 

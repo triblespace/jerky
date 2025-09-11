@@ -288,7 +288,7 @@ impl<I: BitVectorIndex> DacsByte<I> {
     /// # Ok(())
     /// # }
     /// ```
-    pub const fn iter(&self) -> Iter<I> {
+    pub const fn iter(&'_ self) -> Iter<'_, I> {
         Iter::new(self)
     }
 

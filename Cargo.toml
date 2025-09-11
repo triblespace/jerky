@@ -23,9 +23,7 @@ anybytes = { git = "https://github.com/triblespace/anybytes", features = ["zeroc
 zerocopy = "0.8"
 
 [features]
-default = ["std"]
-
-std = []
+default = []
 intrinsics = []
 
 [package.metadata.docs.rs]

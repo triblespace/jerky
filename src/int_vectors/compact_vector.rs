@@ -395,7 +395,7 @@ impl CompactVector {
     /// # Ok(())
     /// # }
     /// ```
-    pub const fn iter(&self) -> Iter {
+    pub const fn iter(&'_ self) -> Iter<'_> {
         Iter::new(self)
     }
 
