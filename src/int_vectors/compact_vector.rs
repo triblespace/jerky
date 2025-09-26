@@ -458,7 +458,10 @@ impl Serializable for CompactVector {
     }
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
-        let data_len = meta.len * meta.width;
+        let data_len = meta
+            .len
+            .checked_mul(meta.width)
+            .ok_or_else(|| Error::invalid_metadata("len * width overflowed"))?;
         let data = BitVectorData::from_bytes(
             BitVectorDataMeta {
                 len: data_len,
@@ -709,5 +712,17 @@ mod tests {
         let bytes = cv.chunks.data.words.clone().bytes();
         let other = CompactVector::from_bytes(meta, bytes).unwrap();
         assert_eq!(cv, other);
+    }
+
+    #[test]
+    fn from_bytes_rejects_overflowing_metadata() {
+        let cv = CompactVector::from_slice(&[1]).unwrap();
+        let mut meta = cv.metadata();
+        meta.len = usize::MAX;
+        meta.width = 2;
+        let bytes = cv.chunks.data.words.clone().bytes();
+
+        let err = CompactVector::from_bytes(meta, bytes).unwrap_err();
+        assert!(matches!(err, Error::InvalidMetadata(_)));
     }
 }
