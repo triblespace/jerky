@@ -3,7 +3,7 @@
 
 use std::convert::TryFrom;
 
-use anyhow::{anyhow, Result};
+use crate::error::{Error, Result};
 use num_traits::ToPrimitive;
 
 use crate::bit_vector::{self, BitVector, BitVectorBuilder, BitVectorIndex, Rank, Rank9SelIndex};
@@ -140,10 +140,9 @@ impl<I: BitVectorIndex> DacsByte<I> {
         // Determine the number of levels by scanning for the maximum value.
         let mut maxv = 0;
         for x in vals {
-            maxv =
-                maxv.max(x.to_usize().ok_or_else(|| {
-                    anyhow!("vals must consist only of values castable into usize.")
-                })?);
+            maxv = maxv.max(x.to_usize().ok_or_else(|| {
+                Error::invalid_argument("vals must consist only of values castable into usize.")
+            })?);
         }
         let num_bits = utils::needed_bits(maxv);
         let num_levels = utils::ceiled_divide(num_bits, LEVEL_WIDTH);
@@ -180,9 +179,9 @@ impl<I: BitVectorIndex> DacsByte<I> {
         let mut flag_counts = vec![0usize; num_levels - 1];
         let mut level_lens = vec![0usize; num_levels];
         for val in vals {
-            let mut x = val
-                .to_usize()
-                .ok_or_else(|| anyhow!("vals must consist only of values castable into usize."))?;
+            let mut x = val.to_usize().ok_or_else(|| {
+                Error::invalid_argument("vals must consist only of values castable into usize.")
+            })?;
             let mut j = 0;
             loop {
                 level_lens[j] += 1;
@@ -251,7 +250,10 @@ impl<I: BitVectorIndex> DacsByte<I> {
         // Freeze level sections, flag builders, and metadata table.
         let data = levels
             .into_iter()
-            .map(|sec| sec.freeze()?.view::<[u8]>().map_err(|e| anyhow!(e)))
+            .map(|sec| {
+                let bytes = sec.freeze()?;
+                bytes.view::<[u8]>().map_err(Error::from)
+            })
             .collect::<Result<Vec<_>>>()?;
         let flags = flags.into_iter().map(|bvb| bvb.freeze::<I>()).collect();
         let handles = infos.handle();
@@ -334,6 +336,7 @@ impl<I: BitVectorIndex> DacsByte<I> {
 
 impl<I: BitVectorIndex> Serializable for DacsByte<I> {
     type Meta = DacsByteMeta;
+    type Error = Error;
 
     fn metadata(&self) -> Self::Meta {
         DacsByteMeta {
@@ -344,12 +347,12 @@ impl<I: BitVectorIndex> Serializable for DacsByte<I> {
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
         if meta.num_levels == 0 || meta.num_levels > MAX_LEVELS {
-            return Err(anyhow!("invalid metadata"));
+            return Err(Error::invalid_metadata("invalid metadata"));
         }
 
-        let infos = meta.levels.view(&bytes).map_err(anyhow::Error::from)?;
+        let infos = meta.levels.view(&bytes)?;
         if infos.as_ref().len() != meta.num_levels {
-            return Err(anyhow!("invalid metadata"));
+            return Err(Error::invalid_metadata("invalid metadata"));
         }
 
         let mut flags = Vec::with_capacity(meta.num_levels.saturating_sub(1));
@@ -366,7 +369,7 @@ impl<I: BitVectorIndex> Serializable for DacsByte<I> {
                 let index = I::build(&bv_data);
                 flags.push(bit_vector::BitVector::new(bv_data, index));
             }
-            let lvl_view = info.level.view(&bytes).map_err(anyhow::Error::from)?;
+            let lvl_view = info.level.view(&bytes)?;
             data.push(lvl_view);
         }
 

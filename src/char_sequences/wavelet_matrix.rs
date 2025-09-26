@@ -11,8 +11,7 @@ use anybytes::area::SectionHandle;
 use anybytes::area::SectionWriter;
 use anybytes::Bytes;
 
-use anyhow::anyhow;
-use anyhow::Result;
+use crate::error::{Error, Result};
 
 use crate::bit_vector::Access;
 use crate::bit_vector::BitVector;
@@ -120,7 +119,7 @@ impl<'a> WaveletMatrixBuilder<'a> {
         writer: &mut SectionWriter<'a>,
     ) -> Result<Self> {
         if len == 0 {
-            return Err(anyhow!("seq must not be empty."));
+            return Err(Error::invalid_argument("seq must not be empty."));
         }
         let alph_width = utils::needed_bits(alph_size);
         let mut handles = writer.reserve::<SectionHandle<u64>>(alph_width)?;
@@ -142,13 +141,16 @@ impl<'a> WaveletMatrixBuilder<'a> {
     /// Sets the `pos`-th integer to `val`.
     pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
         if self.len <= pos {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "pos must be no greater than self.len()={}, but got {pos}.",
                 self.len
-            ));
+            )));
         }
         if val >= self.alph_size {
-            return Err(anyhow!("value {} out of range 0..{}", val, self.alph_size));
+            return Err(Error::invalid_argument(format!(
+                "value {} out of range 0..{}",
+                val, self.alph_size
+            )));
         }
         for (layer_idx, layer) in self.layers.iter_mut().enumerate() {
             let shift = self.alph_width - 1 - layer_idx;
@@ -166,11 +168,10 @@ impl<'a> WaveletMatrixBuilder<'a> {
         I: Iterator<Item = usize>,
     {
         if start > self.len {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "start must be no greater than self.len()={}, but got {}.",
-                self.len,
-                start
-            ));
+                self.len, start
+            )));
         }
         let mut pos = start;
         while pos < self.len {
@@ -806,6 +807,7 @@ where
 
 impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
     type Meta = WaveletMatrixMeta;
+    type Error = Error;
 
     fn metadata(&self) -> Self::Meta {
         WaveletMatrixMeta {
@@ -817,7 +819,7 @@ impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
     }
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
-        let handles_view = meta.layers.view(&bytes).map_err(anyhow::Error::from)?;
+        let handles_view = meta.layers.view(&bytes)?;
         let mut layers = Vec::with_capacity(meta.alph_width);
         for h in handles_view.as_ref() {
             let data = BitVectorData::from_bytes(

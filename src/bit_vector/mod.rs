@@ -134,8 +134,7 @@ use anybytes::area::SectionWriter;
 use anybytes::Bytes;
 use anybytes::View;
 
-use anyhow::anyhow;
-use anyhow::Result;
+use crate::error::{Error, Result};
 
 /// Builder that collects raw bits into a zero-copy [`BitVector`].
 
@@ -189,10 +188,10 @@ impl<'a> BitVectorBuilder<'a> {
     /// Returns the `pos`-th bit.
     pub fn get_bit(&self, pos: usize) -> Result<bool> {
         if self.len <= pos {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "pos must be no greater than self.len()={}, but got {pos}.",
                 self.len
-            ));
+            )));
         }
         let word = pos / WORD_LEN;
         let pos_in_word = pos % WORD_LEN;
@@ -202,10 +201,10 @@ impl<'a> BitVectorBuilder<'a> {
     /// Sets the `pos`-th bit to `bit`.
     pub fn set_bit(&mut self, pos: usize, bit: bool) -> Result<()> {
         if self.len <= pos {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "pos must be no greater than self.len()={}, but got {pos}.",
                 self.len
-            ));
+            )));
         }
         let word = pos / WORD_LEN;
         let pos_in_word = pos % WORD_LEN;
@@ -217,11 +216,10 @@ impl<'a> BitVectorBuilder<'a> {
     /// Sets all bits in `range` to `bit`.
     pub fn set_bits(&mut self, range: std::ops::Range<usize>, bit: bool) -> Result<()> {
         if range.end > self.len {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "range end must be no greater than self.len()={}, but got {}.",
-                self.len,
-                range.end
-            ));
+                self.len, range.end
+            )));
         }
         if range.is_empty() {
             return Ok(());
@@ -250,10 +248,10 @@ impl<'a> BitVectorBuilder<'a> {
     /// Swaps bits at positions `a` and `b`.
     pub fn swap_bits(&mut self, a: usize, b: usize) -> Result<()> {
         if a >= self.len || b >= self.len {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "positions must be less than self.len()={}, but got {a} and {b}.",
                 self.len
-            ));
+            )));
         }
         if a == b {
             return Ok(());
@@ -284,11 +282,10 @@ impl<'a> BitVectorBuilder<'a> {
         I: Iterator<Item = bool>,
     {
         if start > self.len {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "start must be no greater than self.len()={}, but got {}.",
-                self.len,
-                start
-            ));
+                self.len, start
+            )));
         }
         let mut pos = start;
         while pos < self.len {
@@ -390,7 +387,7 @@ impl BitVectorData {
 
     /// Reconstructs the data from zero-copy [`Bytes`] and its metadata.
     pub fn from_bytes(meta: BitVectorDataMeta, bytes: Bytes) -> Result<Self> {
-        let words = meta.handle.view(&bytes).map_err(|e| anyhow::anyhow!(e))?;
+        let words = meta.handle.view(&bytes)?;
         Ok(Self {
             words,
             len: meta.len,
@@ -439,6 +436,7 @@ impl BitVectorData {
 
 impl Serializable for BitVectorData {
     type Meta = BitVectorDataMeta;
+    type Error = Error;
 
     fn metadata(&self) -> Self::Meta {
         BitVectorData::metadata(self)
@@ -700,6 +698,7 @@ impl<I: BitVectorIndex> BitVector<I> {
 
 impl<I: BitVectorIndex> Serializable for BitVector<I> {
     type Meta = BitVectorDataMeta;
+    type Error = Error;
 
     fn metadata(&self) -> Self::Meta {
         self.data.metadata()

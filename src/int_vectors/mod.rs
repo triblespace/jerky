@@ -80,7 +80,7 @@ pub use compact_vector::CompactVector;
 pub use compact_vector::CompactVectorBuilder;
 pub use dacs_byte::DacsByte;
 
-use anyhow::Result;
+use crate::error::Result;
 use num_traits::ToPrimitive;
 
 /// Interface for building integer vectors.

@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Removed the `anyhow` dependency in favor of crate-defined errors and updated
+  `Serializable` to expose an associated error type for reconstruction.
 - Prevent panic in `DacsByte::len` by handling empty level lists gracefully.
 - Embedded section handles in `BitVectorData` and added `BitVectorDataMeta` with
   `Serializable` support for both `BitVectorData` and `BitVector`, enabling

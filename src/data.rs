@@ -9,12 +9,13 @@ pub struct IntVectorData {
 
 impl IntVectorData {
     /// Creates integer vector data from a slice of values.
-    pub fn from_slice<T: num_traits::ToPrimitive>(vals: &[T]) -> anyhow::Result<Self> {
+    pub fn from_slice<T: num_traits::ToPrimitive>(vals: &[T]) -> crate::error::Result<Self> {
         let mut ints = Vec::with_capacity(vals.len());
         for v in vals {
             ints.push(
-                v.to_usize()
-                    .ok_or_else(|| anyhow::anyhow!("vals must be castable"))?,
+                v.to_usize().ok_or_else(|| {
+                    crate::error::Error::invalid_argument("vals must be castable")
+                })?,
             );
         }
         Ok(Self { ints })
