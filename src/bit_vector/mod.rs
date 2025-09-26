@@ -388,6 +388,17 @@ impl BitVectorData {
     /// Reconstructs the data from zero-copy [`Bytes`] and its metadata.
     pub fn from_bytes(meta: BitVectorDataMeta, bytes: Bytes) -> Result<Self> {
         let words = meta.handle.view(&bytes)?;
+        let capacity_bits = words
+            .as_ref()
+            .len()
+            .checked_mul(WORD_LEN)
+            .ok_or_else(|| Error::invalid_metadata("bit vector capacity overflow"))?;
+        if meta.len > capacity_bits {
+            return Err(Error::invalid_metadata(format!(
+                "bit vector length {} exceeds capacity {}",
+                meta.len, capacity_bits
+            )));
+        }
         Ok(Self {
             words,
             len: meta.len,
@@ -758,6 +769,23 @@ mod tests {
         let bytes = area.freeze().unwrap();
         let other: BitVector<NoIndex> = BitVector::from_bytes(meta, bytes).unwrap();
         assert_eq!(expected, other);
+    }
+
+    #[test]
+    fn from_bytes_rejects_metadata_len_overflow() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let builder = BitVectorBuilder::with_capacity(WORD_LEN, &mut sections).unwrap();
+        let data = builder.into_data();
+        let mut meta = data.metadata();
+        let capacity_bits = data.num_words() * WORD_LEN;
+        meta.len = capacity_bits + 1;
+        drop(data);
+        drop(sections);
+        let bytes = area.freeze().unwrap();
+
+        let err = BitVectorData::from_bytes(meta, bytes).unwrap_err();
+        assert!(matches!(err, Error::InvalidMetadata(_)));
     }
 
     #[test]
