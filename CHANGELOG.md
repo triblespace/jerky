@@ -3,6 +3,7 @@
 ## Unreleased
 - Added metadata validation in `BitVectorData::from_bytes` to reject lengths
   exceeding the stored capacity and covered the case with a regression test.
+- Guarded `CompactVector::from_bytes` against metadata bit-length overflow.
 - Removed the `anyhow` dependency in favor of crate-defined errors and updated
   `Serializable` to expose an associated error type for reconstruction.
 - Prevent panic in `DacsByte::len` by handling empty level lists gracefully.
