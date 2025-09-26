@@ -23,6 +23,9 @@
   common builder use cases.
 - Audit remaining constructors for zero-capacity variants and decide whether to
   offer explicit `empty` helpers instead of `with_capacity(0)`.
+- Evaluate introducing more structured error types per module now that
+  `anyhow` has been removed, ensuring diagnostics remain precise without
+  relying on free-form strings.
 - Allocate temporary wavelet-matrix buffers from `ByteArea` to avoid
   intermediate `Vec` copies and ensure fully contiguous construction.
 - Provide a derive or macro to reduce boilerplate when implementing the

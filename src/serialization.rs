@@ -1,7 +1,6 @@
 //! Zero-copy serialization utilities.
 
 use anybytes::Bytes;
-use anyhow::Result;
 
 /// Marker trait for metadata structures that can be safely written to and
 /// read from bytes.
@@ -22,10 +21,12 @@ impl<T> Metadata for T where T: zerocopy::FromBytes + zerocopy::KnownLayout + ze
 pub trait Serializable: Sized {
     /// Metadata describing the byte layout required to reconstruct `Self`.
     type Meta: Metadata;
+    /// Error type for reconstruction failures.
+    type Error: std::error::Error;
 
     /// Returns metadata for this instance.
     fn metadata(&self) -> Self::Meta;
 
     /// Rebuilds an instance from metadata and the arena's frozen bytes.
-    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self>;
+    fn from_bytes(meta: Self::Meta, bytes: Bytes) -> std::result::Result<Self, Self::Error>;
 }

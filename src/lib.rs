@@ -52,6 +52,7 @@ pub mod bit_vector;
 pub mod broadword;
 pub mod char_sequences;
 pub mod data;
+pub mod error;
 pub mod int_vectors;
 mod intrinsics;
 pub mod serialization;
@@ -62,6 +63,7 @@ pub use bit_vector::BitVectorData;
 pub use bit_vector::BitVectorIndex;
 pub use bit_vector::NoIndex;
 pub use data::IntVectorData;
+pub use error::{Error, Result};
 pub use serialization::Serializable;
 
 // NOTE(kampersanda): We should not use `get()` because it has been already used in most std

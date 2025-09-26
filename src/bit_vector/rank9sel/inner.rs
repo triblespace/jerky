@@ -4,10 +4,9 @@
 use anybytes::Bytes;
 use anybytes::View;
 
-use anyhow::Result;
-
 use crate::bit_vector::BitVectorData;
 use crate::broadword;
+use crate::error::{Error, Result};
 
 const BLOCK_LEN: usize = 8;
 const SELECT_ONES_PER_HINT: usize = 64 * BLOCK_LEN * 2;
@@ -443,49 +442,25 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
 impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
     /// Reconstructs the index from zero-copy [`Bytes`].
     pub fn from_bytes(mut bytes: Bytes) -> Result<Self> {
-        let len = *bytes
-            .view_prefix::<usize>()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let brp_len = *bytes
-            .view_prefix::<usize>()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let block_rank_pairs = bytes
-            .view_prefix_with_elems::<[usize]>(brp_len)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let has_select1 = *bytes
-            .view_prefix::<usize>()
-            .map_err(|e| anyhow::anyhow!(e))?
-            != 0;
+        let len = *bytes.view_prefix::<usize>()?;
+        let brp_len = *bytes.view_prefix::<usize>()?;
+        let block_rank_pairs = bytes.view_prefix_with_elems::<[usize]>(brp_len)?;
+        let has_select1 = *bytes.view_prefix::<usize>()? != 0;
         let select1_hints = if has_select1 {
-            let l = *bytes
-                .view_prefix::<usize>()
-                .map_err(|e| anyhow::anyhow!(e))?;
-            Some(
-                bytes
-                    .view_prefix_with_elems::<[usize]>(l)
-                    .map_err(|e| anyhow::anyhow!(e))?,
-            )
+            let l = *bytes.view_prefix::<usize>()?;
+            Some(bytes.view_prefix_with_elems::<[usize]>(l)?)
         } else {
             None
         };
-        let has_select0 = *bytes
-            .view_prefix::<usize>()
-            .map_err(|e| anyhow::anyhow!(e))?
-            != 0;
+        let has_select0 = *bytes.view_prefix::<usize>()? != 0;
         let select0_hints = if has_select0 {
-            let l = *bytes
-                .view_prefix::<usize>()
-                .map_err(|e| anyhow::anyhow!(e))?;
-            Some(
-                bytes
-                    .view_prefix_with_elems::<[usize]>(l)
-                    .map_err(|e| anyhow::anyhow!(e))?,
-            )
+            let l = *bytes.view_prefix::<usize>()?;
+            Some(bytes.view_prefix_with_elems::<[usize]>(l)?)
         } else {
             None
         };
         if has_select1 != SELECT1 || has_select0 != SELECT0 {
-            return Err(anyhow::anyhow!("mismatched hint flags"));
+            return Err(Error::MismatchedHintFlags);
         }
         Ok(Self {
             len,

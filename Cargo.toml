@@ -17,7 +17,6 @@ rust-version = "1.61.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
 num-traits = "0.2.15"
 anybytes = { git = "https://github.com/triblespace/anybytes", features = ["zerocopy", "mmap"] }
 zerocopy = "0.8"

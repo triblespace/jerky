@@ -1,11 +1,11 @@
 //! Updatable compact vector in which each integer is represented in a fixed number of bits.
 #![cfg(target_pointer_width = "64")]
 
-use anyhow::{anyhow, Result};
 use num_traits::ToPrimitive;
 use std::iter::ExactSizeIterator;
 
 use crate::bit_vector::{BitVector, BitVectorBuilder, BitVectorData, BitVectorDataMeta, NoIndex};
+use crate::error::{Error, Result};
 use crate::int_vectors::prelude::*;
 use crate::serialization::Serializable;
 use crate::utils;
@@ -48,11 +48,13 @@ impl<'a> CompactVectorBuilder<'a> {
         writer: &mut SectionWriter<'a>,
     ) -> Result<Self> {
         if !(1..=64).contains(&width) {
-            return Err(anyhow!("width must be in 1..=64, but got {width}."));
+            return Err(Error::invalid_argument(format!(
+                "width must be in 1..=64, but got {width}."
+            )));
         }
         let bits = capa
             .checked_mul(width)
-            .ok_or_else(|| anyhow!("capa * width overflowed"))?;
+            .ok_or_else(|| Error::invalid_argument("capa * width overflowed"))?;
         Ok(Self {
             chunks: BitVectorBuilder::with_capacity(bits, writer)?,
             len: 0,
@@ -69,16 +71,16 @@ impl<'a> CompactVectorBuilder<'a> {
     /// `self.width()` bits.
     pub fn set_int(&mut self, pos: usize, val: usize) -> Result<()> {
         if self.capacity <= pos {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "pos must be no greater than self.capacity()={}, but got {pos}.",
                 self.capacity
-            ));
+            )));
         }
         if self.width != 64 && val >> self.width != 0 {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "val must fit in self.width()={} bits, but got {val}.",
                 self.width
-            ));
+            )));
         }
         for i in 0..self.width {
             let bit = ((val >> i) & 1) == 1;
@@ -98,22 +100,25 @@ impl<'a> CompactVectorBuilder<'a> {
         I: IntoIterator<Item = usize>,
     {
         if range.end > self.capacity {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "range end must be no greater than self.capacity()={}, but got {}.",
-                self.capacity,
-                range.end
-            ));
+                self.capacity, range.end
+            )));
         }
         let mut pos = range.start;
         for x in vals.into_iter() {
             if pos >= range.end {
-                return Err(anyhow!("too many values for the specified range"));
+                return Err(Error::invalid_argument(
+                    "too many values for the specified range",
+                ));
             }
             self.set_int(pos, x)?;
             pos += 1;
         }
         if pos != range.end {
-            return Err(anyhow!("not enough values for the specified range"));
+            return Err(Error::invalid_argument(
+                "not enough values for the specified range",
+            ));
         }
         Ok(())
     }
@@ -280,12 +285,14 @@ impl CompactVector {
     /// ```
     pub fn from_int(val: usize, len: usize, width: usize) -> Result<Self> {
         if !(1..=64).contains(&width) {
-            return Err(anyhow!("width must be in 1..=64, but got {width}."));
+            return Err(Error::invalid_argument(format!(
+                "width must be in 1..=64, but got {width}."
+            )));
         }
         if width < 64 && val >> width != 0 {
-            return Err(anyhow!(
+            return Err(Error::invalid_argument(format!(
                 "val must fit in width={width} bits, but got {val}."
-            ));
+            )));
         }
         let mut area = ByteArea::new().expect("byte area");
         let mut sections = area.sections();
@@ -330,10 +337,9 @@ impl CompactVector {
         }
         let mut max_int = 0;
         for x in vals {
-            max_int =
-                max_int.max(x.to_usize().ok_or_else(|| {
-                    anyhow!("vals must consist only of values castable into usize.")
-                })?);
+            max_int = max_int.max(x.to_usize().ok_or_else(|| {
+                Error::invalid_argument("vals must consist only of values castable into usize.")
+            })?);
         }
         let mut area = ByteArea::new().expect("byte area");
         let mut sections = area.sections();
@@ -441,6 +447,7 @@ impl CompactVector {
 
 impl Serializable for CompactVector {
     type Meta = CompactVectorMeta;
+    type Error = Error;
 
     fn metadata(&self) -> Self::Meta {
         CompactVectorMeta {
