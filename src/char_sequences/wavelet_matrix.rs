@@ -118,9 +118,6 @@ impl<'a> WaveletMatrixBuilder<'a> {
         len: usize,
         writer: &mut SectionWriter<'a>,
     ) -> Result<Self> {
-        if len == 0 {
-            return Err(Error::invalid_argument("seq must not be empty."));
-        }
         let alph_width = utils::needed_bits(alph_size);
         let mut handles = writer.reserve::<SectionHandle<u64>>(alph_width)?;
         let mut layers = Vec::with_capacity(alph_width);
@@ -199,14 +196,14 @@ impl<'a> WaveletMatrixBuilder<'a> {
         let mut remaining = self.layers;
         remaining.reverse();
         let mut layers = Vec::with_capacity(self.alph_width);
+        let handles = self.handles;
+
         let mut scratch = ByteArea::new()?;
         let mut scratch_sections = scratch.sections();
         let mut visited = BitVectorBuilder::with_capacity(self.len, &mut scratch_sections)?;
-        let handles = self.handles;
 
-        for _ in 0..self.alph_width {
+        while let Some(builder) = remaining.pop() {
             // Freeze the next layer and obtain its index for rank/select queries.
-            let builder = remaining.pop().expect("layer available");
             let layer = builder.freeze::<Ix>();
             let zeros = layer.num_zeros();
 
@@ -887,11 +884,10 @@ mod test {
     fn test_empty_seq() {
         let mut area = ByteArea::new().unwrap();
         let mut sections = area.sections();
-        let e = WaveletMatrix::<Rank9SelIndex>::from_iter(1, iter::empty(), &mut sections);
-        assert_eq!(
-            e.err().map(|x| x.to_string()),
-            Some("seq must not be empty.".to_string())
-        );
+        let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(1, iter::empty(), &mut sections)
+            .expect("empty iterator should build successfully");
+        assert_eq!(wm.len(), 0);
+        assert!(wm.is_empty());
     }
 
     #[test]
