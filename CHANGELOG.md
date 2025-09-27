@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Allowed `WaveletMatrix` builders to construct empty sequences, skipping layer
+  permutations for zero-length inputs and covering the case with a regression
+  test.
+- Simplified `WaveletMatrixBuilder::freeze` to drain builders in the common
+  path, removing redundant early returns while preserving empty-layer support.
 - Added metadata validation in `BitVectorData::from_bytes` to reject lengths
   exceeding the stored capacity and covered the case with a regression test.
 - Guarded `CompactVector::from_bytes` against metadata bit-length overflow.
