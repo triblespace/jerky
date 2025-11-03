@@ -1,6 +1,6 @@
 [package]
 name = "jerky"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["Shunsuke Kanda (kampersanda) <shnsk.knd@gmail.com>",
            "Jan-Paul Bultmann (somethingelseentirely) <jp@bultmann.eu>"]
 description = "Succinct on-disk data structures in Rust"
