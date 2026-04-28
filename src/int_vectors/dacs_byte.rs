@@ -22,7 +22,7 @@ const MAX_LEVELS: usize = (usize::BITS as usize + LEVEL_WIDTH - 1) / LEVEL_WIDTH
 ///
 /// DACs are a compact representation of an integer sequence consisting of many small values.
 /// [`DacsByte`] stores each level as a zero-copy [`View<[u8]>`] to avoid extra copying.
-/// The generic parameter `I` chooses the [`BitVectorIndex`](crate::bit_vector::BitVectorIndex)
+/// The generic parameter `I` chooses the [`crate::bit_vector::BitVectorIndex`]
 /// used for the internal flag vectors. It defaults to [`Rank9SelIndex`], so most
 /// code can omit the parameter.
 ///

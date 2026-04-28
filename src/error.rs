@@ -18,7 +18,7 @@ pub enum Error {
     MismatchedHintFlags,
     /// Wrapper around [`std::io::Error`] values.
     Io(std::io::Error),
-    /// Wrapper around [`anybytes::ViewError`] values.
+    /// Wrapper around [`anybytes::view::ViewError`] values.
     View(ViewError),
 }
 

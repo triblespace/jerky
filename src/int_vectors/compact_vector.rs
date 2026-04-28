@@ -13,8 +13,9 @@ use anybytes::{area::SectionHandle, ByteArea, Bytes, SectionWriter};
 
 /// Mutable builder for [`CompactVector`].
 ///
-/// This structure collects integers using [`set_int`] or [`set_ints`]
-/// and finally [`freeze`]s into an immutable [`CompactVector`].
+/// This structure collects integers using [`Self::set_int`] or
+/// [`Self::set_ints`] and finally [`Self::freeze`]s into an immutable
+/// [`CompactVector`].
 ///
 /// # Examples
 /// ```

@@ -17,7 +17,7 @@
 //!
 //! The implementations provided in this crate are summarized below:
 //!
-//! | Implementation | [Access](Access) | Update | Memory (bits) |
+//! | Implementation | [`Access`] | Update | Memory (bits) |
 //! | --- | :-: | :-: | :-: |
 //! | [`CompactVector`] | $`O(1)`$ | $`O(1)`$  | $`n \lceil \lg u \rceil`$ |
 //! | [`DacsByte`] | $`O(\ell(a_i) / b)`$ | -- | $`\textrm{DAC}_\textrm{Byte}(A) + o(\textrm{DAC}_\textrm{Byte}(A)/b) + O(\lg u)`$ |
