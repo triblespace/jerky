@@ -72,6 +72,25 @@ let view = CompactVector::from_bytes(meta, bytes.clone())?;
 assert_eq!(view.get_int(1), Some(2));
 ```
 
+## GPU batch queries (feature `gpu`)
+
+The optional `gpu` feature adds [`jerky::gpu::GpuWaveletMatrix`](src/gpu.rs)
+(cubecl/wgpu — Metal, Vulkan, DX12): upload a frozen `WaveletMatrix` to the
+GPU once, then answer *batches* of access/rank/select/quantile queries with
+one dispatch and one host↔device sync per batch. Wavelet queries are
+latency-bound chains of dependent scattered loads, so GPU thread
+oversubscription pays off at scale: at 1M-query batches an M4 Max runs
+24–72× over one CPU core and 2.2–4.9× over all 16 threads, with break-even
+around 16k–65k queries per batch. Use it for large analytic batches; keep
+point lookups on the CPU form. Run the honest comparison on your hardware:
+
+```console
+cargo run --release --features gpu --example gpu_bench
+```
+
+Note that the `gpu` feature requires a recent stable toolchain (cubecl's
+MSRV) and, for its tests, a working GPU.
+
 ## Examples
 
 See the [examples](examples/) directory for runnable usage demos, including

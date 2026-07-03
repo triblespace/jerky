@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added an optional `gpu` feature with GPU batch query kernels for
+  `WaveletMatrix` (`jerky::gpu::GpuWaveletMatrix`, cubecl/wgpu): upload the
+  bit-planes plus a flat rank-block directory once, then answer batches of
+  access/rank/select/quantile queries with one dispatch and one host↔device
+  sync per batch. Results are bit-identical to the CPU API (property-tested
+  to 4M values / 64k alphabets, including out-of-range queries). Measured on
+  an M4 Max at 1M-query batches: 24-72x over one core, 2.2-4.9x over all 16
+  threads; break-even vs 16 threads is roughly 16k-65k queries per batch
+  (`examples/gpu_bench.rs`). Intended for large batch analytic workloads
+  (the SuccinctArchive shape); point lookups should stay on the CPU form.
 - Added a linear structural merge for `WaveletMatrix`: `merge_interleaved`
   (interleave N built matrices per a caller-supplied origin order by merging
   bit-planes directly — no decode, no sort, no freeze permutation) and

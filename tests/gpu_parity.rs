@@ -6,6 +6,8 @@
 //! plain `cargo test --features gpu` stays fast; run it with
 //! `cargo test --release --features gpu -- --ignored`.
 #![cfg(all(feature = "gpu", target_pointer_width = "64"))]
+// One-element `&[Range]` arguments below are deliberate batch-of-one calls.
+#![allow(clippy::single_range_in_vec_init)]
 
 use anybytes::area::ByteArea;
 use jerky::bit_vector::Rank9SelIndex;

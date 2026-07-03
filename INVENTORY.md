@@ -4,6 +4,16 @@
 - None at the moment.
 
 ## Desired Functionality
+- Batch-query adapter in triblespace's `SuccinctArchive`: collect per-clause
+  constraint probes and evaluate them via `GpuWaveletMatrix::*_batch` (one
+  sync per clause) instead of per-element CPU probes. Jerky-side API is
+  ready; the adapter lives in triblespace.
+- GPU forms for more ops/structures: `rank_range`/`intersect` on
+  `GpuWaveletMatrix`, and a batched rank/select kernel for a standalone
+  `BitVector<Rank9SelIndex>`.
+- Persistent single-workgroup kernel variant for latency-bound query chains
+  under GPU contention (a single dispatch is immune to per-dispatch scheduler
+  gaps; measured to win under load in prior probes).
 - Wire triblespace's `SuccinctRollup::merge` onto the new `WaveletMatrix`
   merge APIs. Note the alphabet gap: archive segments carry per-segment value
   domains, so codes are remapped during a merge — the structural

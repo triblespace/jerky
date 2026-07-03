@@ -12,6 +12,9 @@
 //! ```sh
 //! cargo run --release --features gpu --example gpu_bench
 //! ```
+// The `gpu` feature requires a recent stable toolchain regardless (cubecl's
+// MSRV is far above the base crate's 1.61).
+#![allow(clippy::incompatible_msrv)]
 
 use std::time::Instant;
 
