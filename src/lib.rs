@@ -53,6 +53,8 @@ pub mod broadword;
 pub mod char_sequences;
 pub mod data;
 pub mod error;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod int_vectors;
 mod intrinsics;
 pub mod serialization;

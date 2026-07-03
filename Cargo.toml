@@ -20,10 +20,18 @@ rust-version = "1.61.0"
 num-traits = "0.2.15"
 anybytes = { version = "0.20.2", features = ["zerocopy", "mmap"] }
 zerocopy = "0.8"
+cubecl = { version = "0.10.0", default-features = false, features = ["wgpu", "std"], optional = true }
 
 [features]
 default = []
 intrinsics = []
+# GPU batch query kernels (wgpu: Metal/Vulkan/DX12) for WaveletMatrix.
+# Requires a recent stable toolchain (cubecl's MSRV), unlike the base crate.
+gpu = ["dep:cubecl"]
+
+[[example]]
+name = "gpu_bench"
+required-features = ["gpu"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "katex.html"]

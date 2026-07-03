@@ -1023,6 +1023,13 @@ where
         out
     }
 
+    /// Returns the frozen bit-vector layers (MSB first), for crate-internal
+    /// consumers such as the GPU upload path.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn layers(&self) -> &[BitVector<I>] {
+        &self.layers
+    }
+
     /// Returns the number of values stored.
     #[inline(always)]
     pub fn len(&self) -> usize {
