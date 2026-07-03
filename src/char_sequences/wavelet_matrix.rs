@@ -309,6 +309,210 @@ where
         }
         builder.freeze()
     }
+
+    /// Merges already-built wavelet matrices into one, given the exact
+    /// interleaving of their sequences.
+    ///
+    /// `origins` spells out, for each position of the merged sequence, which
+    /// input that element comes from; within each input, elements are taken
+    /// in their stored order. The result is identical to building a matrix
+    /// from scratch over the interleaved sequence, but is computed
+    /// *structurally*: because a stable bit-partition preserves each input's
+    /// internal order, layer $`d`$ of the merged matrix is exactly the
+    /// interleave of the inputs' layer-$`d`$ bit-planes under an origin
+    /// vector that is itself re-partitioned per layer. No values are
+    /// decoded, no sort is performed, and no freeze permutation is needed —
+    /// just $`O(n \lg \sigma)`$ sequential bit reads/writes followed by the
+    /// per-layer rank/select index builds. The returned matrix is complete
+    /// and queryable (bit-planes plus indexes).
+    ///
+    /// This is the LSMT-compaction primitive: use it to replace several
+    /// index segments by one merged segment in linear time, instead of
+    /// decoding them into a flat vector, re-sorting, and rebuilding. The
+    /// caller supplies `origins` from its own merge of the segments' sort
+    /// keys (see [`Self::merge_sorted`] for the self-keyed case where the
+    /// stored sequences themselves are the sorted runs).
+    ///
+    /// All inputs must share one alphabet width (the same number of
+    /// layers); the merged alphabet size is the maximum of the inputs'. If
+    /// the merge re-codes values (e.g. the alphabets are per-segment value
+    /// domains that get unioned), the layer structure changes and this
+    /// structural merge does not apply: decode with
+    /// [`WaveletMatrix::to_vec`], remap, and rebuild with
+    /// [`Self::from_iter`] instead.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if `inputs` is empty, if the inputs disagree on
+    /// alphabet width, or if `origins` does not reference each input exactly
+    /// `len()` times.
+    pub fn merge_interleaved<J, T>(
+        inputs: &[&WaveletMatrix<J>],
+        origins: T,
+        writer: &mut SectionWriter<'_>,
+    ) -> Result<Self>
+    where
+        J: BitVectorIndex,
+        T: IntoIterator<Item = usize>,
+    {
+        if inputs.is_empty() {
+            return Err(Error::invalid_argument(
+                "inputs must contain at least one matrix",
+            ));
+        }
+        let alph_width = inputs[0].alph_width();
+        for (j, wm) in inputs.iter().enumerate() {
+            if wm.alph_width() != alph_width {
+                return Err(Error::invalid_argument(format!(
+                    "all inputs must share one alphabet width: \
+                     inputs[0] has {alph_width} layers, inputs[{j}] has {}",
+                    wm.alph_width()
+                )));
+            }
+        }
+        let alph_size = inputs.iter().map(|wm| wm.alph_size()).max().unwrap();
+        let len: usize = inputs.iter().map(|wm| wm.len()).sum();
+
+        // Materialize and validate the interleaving.
+        let mut origins: Vec<u32> = {
+            let iter = origins.into_iter();
+            let mut vec = Vec::with_capacity(len);
+            let mut counts = vec![0usize; inputs.len()];
+            for src in iter {
+                if inputs.len() <= src {
+                    return Err(Error::invalid_argument(format!(
+                        "origin {src} out of range for {} inputs",
+                        inputs.len()
+                    )));
+                }
+                counts[src] += 1;
+                vec.push(src as u32);
+            }
+            for (j, (&count, wm)) in counts.iter().zip(inputs).enumerate() {
+                if count != wm.len() {
+                    return Err(Error::invalid_argument(format!(
+                        "origins references inputs[{j}] {count} times, \
+                         but it stores {} values",
+                        wm.len()
+                    )));
+                }
+            }
+            vec
+        };
+
+        // Mirror WaveletMatrixBuilder's section layout: one handles section,
+        // then one words section per layer.
+        let mut handles = writer.reserve::<SectionHandle<u64>>(alph_width)?;
+        let mut layers = Vec::with_capacity(alph_width);
+        let mut cursors = vec![0usize; inputs.len()];
+        let mut zeros_buf: Vec<u32> = Vec::with_capacity(len);
+        let mut ones_buf: Vec<u32> = Vec::with_capacity(len);
+
+        for depth in 0..alph_width {
+            let mut builder = BitVectorBuilder::with_capacity(len, writer)?;
+            handles[depth] = builder.handle();
+            {
+                let out_words = builder.words_mut();
+                let planes: Vec<&[u64]> = inputs
+                    .iter()
+                    .map(|wm| wm.layers[depth].data.words())
+                    .collect();
+                cursors.iter_mut().for_each(|c| *c = 0);
+                zeros_buf.clear();
+                ones_buf.clear();
+                let mut word = 0u64;
+                for (pos, &src) in origins.iter().enumerate() {
+                    let s = src as usize;
+                    let cur = cursors[s];
+                    cursors[s] = cur + 1;
+                    let bit = (planes[s][cur / 64] >> (cur % 64)) & 1;
+                    word |= bit << (pos % 64);
+                    if pos % 64 == 63 {
+                        out_words[pos / 64] = word;
+                        word = 0;
+                    }
+                    if bit == 0 {
+                        zeros_buf.push(src);
+                    } else {
+                        ones_buf.push(src);
+                    }
+                }
+                if len % 64 != 0 {
+                    out_words[len / 64] = word;
+                }
+            }
+            layers.push(builder.freeze::<I>());
+            // The next layer's order is this layer's stable partition.
+            origins.clear();
+            origins.extend_from_slice(&zeros_buf);
+            origins.extend_from_slice(&ones_buf);
+        }
+
+        let layers_handle = handles.handle();
+        handles.freeze()?;
+        Ok(WaveletMatrix {
+            layers,
+            alph_size,
+            layers_handle,
+        })
+    }
+
+    /// Merges wavelet matrices whose stored sequences are each sorted
+    /// (non-decreasing) into the matrix over the globally sorted merged
+    /// sequence, in linear time.
+    ///
+    /// This is [`Self::merge_interleaved`] for the self-keyed case: each
+    /// input is a sorted key run (an LSMT index segment), and the
+    /// interleaving is computed here by a multi-way merge of the decoded
+    /// runs. Equal values are taken from the lower input index first, and
+    /// duplicates across runs are all kept (multiset merge) — deduplicate in
+    /// the caller if segments may overlap. Total cost is
+    /// $`O(n (\lg \sigma + k))`$ for `k` inputs, all sequential passes; the
+    /// $`O(n \lg n)`$ comparison sort that a decode-concatenate-rebuild pays
+    /// is avoided entirely, as is the freeze permutation.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if `inputs` is empty, if the inputs disagree on
+    /// alphabet width, or if any input's sequence is not non-decreasing.
+    pub fn merge_sorted<J>(
+        inputs: &[&WaveletMatrix<J>],
+        writer: &mut SectionWriter<'_>,
+    ) -> Result<Self>
+    where
+        J: BitVectorIndex,
+    {
+        let runs: Vec<Vec<usize>> = inputs.iter().map(|wm| wm.to_vec()).collect();
+        for (j, run) in runs.iter().enumerate() {
+            if run.windows(2).any(|w| w[0] > w[1]) {
+                return Err(Error::invalid_argument(format!(
+                    "inputs[{j}] does not store a sorted (non-decreasing) sequence"
+                )));
+            }
+        }
+        let len = runs.iter().map(Vec::len).sum();
+        let mut origins = Vec::with_capacity(len);
+        let mut heads = vec![0usize; runs.len()];
+        loop {
+            let mut best: Option<(usize, usize)> = None;
+            for (j, run) in runs.iter().enumerate() {
+                if heads[j] < run.len() {
+                    let val = run[heads[j]];
+                    if best.map_or(true, |(best_val, _)| val < best_val) {
+                        best = Some((val, j));
+                    }
+                }
+            }
+            match best {
+                Some((_, j)) => {
+                    heads[j] += 1;
+                    origins.push(j);
+                }
+                None => break,
+            }
+        }
+        Self::merge_interleaved(inputs, origins, writer)
+    }
 }
 
 impl<I> WaveletMatrix<I>
@@ -1038,6 +1242,227 @@ mod test {
             let (_area, wm) = build_wm(alph_size, &ints);
             assert_eq!(wm.to_vec(), ints, "len={len} alph_size={alph_size}");
         }
+    }
+
+    /// Asserts that `merged` is exactly the matrix `reference` built from
+    /// scratch: same shape, same layer bit-planes, and the same answers for
+    /// access/rank/select/quantile on a random sample.
+    fn assert_matrix_equivalence(
+        merged: &WaveletMatrix<Rank9SelIndex>,
+        reference: &WaveletMatrix<Rank9SelIndex>,
+        expected: &[usize],
+        seed: u64,
+    ) {
+        assert_eq!(merged.len(), reference.len());
+        assert_eq!(merged.alph_size(), reference.alph_size());
+        assert_eq!(merged.alph_width(), reference.alph_width());
+        for (depth, (m, r)) in merged.layers.iter().zip(&reference.layers).enumerate() {
+            assert_eq!(m.data.words(), r.data.words(), "bit-plane {depth} differs");
+            assert_eq!(m.data.len(), r.data.len(), "plane {depth} length differs");
+        }
+        assert_eq!(merged.to_vec(), expected);
+
+        let n = merged.len();
+        let mut st = seed;
+        for (pos, &val) in expected.iter().enumerate() {
+            assert_eq!(merged.access(pos), Some(val), "access({pos})");
+        }
+        for _ in 0..200.min(n) {
+            let pos = sm(&mut st) as usize % (n + 1);
+            let val = if n == 0 {
+                0
+            } else {
+                expected[sm(&mut st) as usize % n]
+            };
+            assert_eq!(
+                merged.rank(pos, val),
+                reference.rank(pos, val),
+                "rank({pos}, {val})"
+            );
+            let k = sm(&mut st) as usize % (n.max(1));
+            assert_eq!(
+                merged.select(k, val),
+                reference.select(k, val),
+                "select({k}, {val})"
+            );
+            let mut lo = sm(&mut st) as usize % n;
+            let mut hi = sm(&mut st) as usize % n;
+            if hi < lo {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            hi += 1;
+            let q = sm(&mut st) as usize % (hi - lo);
+            assert_eq!(
+                merged.quantile(lo..hi, q),
+                reference.quantile(lo..hi, q),
+                "quantile({lo}..{hi}, {q})"
+            );
+        }
+    }
+
+    #[test]
+    fn merge_sorted_equals_rebuild_random_runs() {
+        let mut seed = 0x5EED_0001;
+        for &(num_runs, max_len, alph_size) in &[
+            (1usize, 50usize, 16usize),
+            (2, 0, 4), // empty runs
+            (2, 100, 300),
+            (3, 64, 941),
+            (4, 200, 2),
+            (5, 333, 65536),
+            (2, 1000, 1000),
+        ] {
+            seed += 1;
+            let mut st = seed as u64;
+            let runs: Vec<Vec<usize>> = (0..num_runs)
+                .map(|_| {
+                    let len = if max_len == 0 {
+                        0
+                    } else {
+                        sm(&mut st) as usize % (max_len + 1)
+                    };
+                    let mut run = random_ints(sm(&mut st), len, alph_size);
+                    run.sort_unstable();
+                    run
+                })
+                .collect();
+            let built: Vec<(ByteArea, WaveletMatrix<Rank9SelIndex>)> =
+                runs.iter().map(|run| build_wm(alph_size, run)).collect();
+            let inputs: Vec<&WaveletMatrix<Rank9SelIndex>> =
+                built.iter().map(|(_, wm)| wm).collect();
+
+            let mut area = ByteArea::new().unwrap();
+            let mut sections = area.sections();
+            let merged =
+                WaveletMatrix::<Rank9SelIndex>::merge_sorted(&inputs, &mut sections).unwrap();
+
+            // Reference: flatten, sort, rebuild from scratch — the baseline
+            // the merge replaces.
+            let mut expected: Vec<usize> = runs.iter().flatten().copied().collect();
+            expected.sort_unstable();
+            let (_ref_area, reference) = build_wm(alph_size, &expected);
+
+            assert_matrix_equivalence(&merged, &reference, &expected, seed as u64 ^ 0xFACE);
+        }
+    }
+
+    #[test]
+    fn merge_interleaved_equals_rebuild_random_interleavings() {
+        // The general (externally keyed) case: arbitrary interleavings of
+        // arbitrary (unsorted) sequences.
+        let mut seed = 0x1EAF_0001;
+        for &(num_inputs, max_len, alph_size) in &[
+            (1usize, 40usize, 8usize),
+            (2, 128, 300),
+            (3, 100, 941),
+            (4, 77, 65536),
+        ] {
+            seed += 1;
+            let mut st = seed as u64;
+            let seqs: Vec<Vec<usize>> = (0..num_inputs)
+                .map(|_| {
+                    let len = sm(&mut st) as usize % (max_len + 1);
+                    random_ints(sm(&mut st), len, alph_size)
+                })
+                .collect();
+            let built: Vec<(ByteArea, WaveletMatrix<Rank9SelIndex>)> =
+                seqs.iter().map(|s| build_wm(alph_size, s)).collect();
+            let inputs: Vec<&WaveletMatrix<Rank9SelIndex>> =
+                built.iter().map(|(_, wm)| wm).collect();
+
+            // A random valid interleaving: a shuffled multiset of source ids.
+            let mut origins: Vec<usize> = seqs
+                .iter()
+                .enumerate()
+                .flat_map(|(j, s)| std::iter::repeat(j).take(s.len()))
+                .collect();
+            for i in (1..origins.len()).rev() {
+                origins.swap(i, sm(&mut st) as usize % (i + 1));
+            }
+
+            let mut cursors = vec![0usize; num_inputs];
+            let expected: Vec<usize> = origins
+                .iter()
+                .map(|&j| {
+                    let v = seqs[j][cursors[j]];
+                    cursors[j] += 1;
+                    v
+                })
+                .collect();
+
+            let mut area = ByteArea::new().unwrap();
+            let mut sections = area.sections();
+            let merged = WaveletMatrix::<Rank9SelIndex>::merge_interleaved(
+                &inputs,
+                origins.iter().copied(),
+                &mut sections,
+            )
+            .unwrap();
+            let (_ref_area, reference) = build_wm(alph_size, &expected);
+
+            assert_matrix_equivalence(&merged, &reference, &expected, seed as u64 ^ 0xBEEF);
+        }
+    }
+
+    #[test]
+    fn merged_matrix_serializes_and_reloads() {
+        let a = vec![1usize, 3, 3, 7, 200];
+        let b = vec![0usize, 3, 100, 255];
+        let (_area_a, wm_a) = build_wm(256, &a);
+        let (_area_b, wm_b) = build_wm(256, &b);
+
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let merged =
+            WaveletMatrix::<Rank9SelIndex>::merge_sorted(&[&wm_a, &wm_b], &mut sections).unwrap();
+        let meta = merged.metadata();
+        let bytes = area.freeze().unwrap();
+        let reloaded = WaveletMatrix::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
+        assert_eq!(merged, reloaded);
+
+        let mut expected: Vec<usize> = a.iter().chain(&b).copied().collect();
+        expected.sort_unstable();
+        assert_eq!(reloaded.to_vec(), expected);
+    }
+
+    #[test]
+    fn merge_rejects_invalid_inputs() {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        // Empty input list.
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::merge_sorted::<Rank9SelIndex>(&[], &mut sections)
+                .is_err()
+        );
+
+        // Mismatched alphabet widths.
+        let (_a1, narrow) = build_wm(4, &[0, 1, 2]);
+        let (_a2, wide) = build_wm(256, &[0, 1, 2]);
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::merge_sorted(&[&narrow, &wide], &mut sections).is_err()
+        );
+
+        // Unsorted input for merge_sorted.
+        let (_a3, unsorted) = build_wm(4, &[2, 0, 1]);
+        let (_a4, sorted) = build_wm(4, &[0, 1, 2]);
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::merge_sorted(&[&sorted, &unsorted], &mut sections)
+                .is_err()
+        );
+
+        // Bad interleavings: out-of-range source, wrong multiplicity.
+        assert!(WaveletMatrix::<Rank9SelIndex>::merge_interleaved(
+            &[&sorted],
+            [0usize, 1, 0].iter().copied(),
+            &mut sections
+        )
+        .is_err());
+        assert!(WaveletMatrix::<Rank9SelIndex>::merge_interleaved(
+            &[&sorted],
+            [0usize, 0].iter().copied(),
+            &mut sections
+        )
+        .is_err());
     }
 
     #[test]
