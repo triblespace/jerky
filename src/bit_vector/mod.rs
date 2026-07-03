@@ -300,6 +300,16 @@ impl<'a> BitVectorBuilder<'a> {
         Ok(pos - start)
     }
 
+    /// Returns a mutable view of the backing words for bulk writes.
+    ///
+    /// Bit `pos` lives in word `pos / 64` at bit `pos % 64`, matching
+    /// [`Self::set_bit`]. Callers must keep bits at positions
+    /// `>= self.len()` (the tail of the last word) zero: index builders
+    /// and popcount-based queries assume the tail is clear.
+    pub fn words_mut(&mut self) -> &mut [u64] {
+        self.words.as_mut_slice()
+    }
+
     fn into_data(self) -> BitVectorData {
         let handle = self.words.handle();
         let words_bytes = self.words.freeze().expect("freeze section");

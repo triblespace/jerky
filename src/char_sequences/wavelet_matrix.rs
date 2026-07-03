@@ -767,6 +767,58 @@ where
         Iter::new(self)
     }
 
+    /// Decodes the whole stored sequence into a `Vec<usize>`, in original
+    /// order, using one sequential pass per layer.
+    ///
+    /// This inverts the wavelet freeze: per layer, elements are stably
+    /// scattered into the zero/one halves while the layer's bit is shifted
+    /// into each element's value accumulator. All reads and (per region)
+    /// writes are sequential, so it runs in $`O(n \lg \sigma)`$ time with
+    /// streaming memory access — much faster than `iter()`, which pays
+    /// $`O(\lg \sigma)`$ *random* rank queries per element.
+    ///
+    /// Use this when you need the full sequence back, e.g. to re-code and
+    /// rebuild a matrix whose alphabet changes during a segment merge.
+    pub fn to_vec(&self) -> Vec<usize> {
+        let n = self.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        // `vals[p]` accumulates the bits of the element currently at
+        // position `p` in the running layer order; `idx[p]` remembers that
+        // element's original (top-layer) position.
+        let mut vals = vec![0usize; n];
+        let mut next_vals = vec![0usize; n];
+        let mut idx: Vec<usize> = (0..n).collect();
+        let mut next_idx = vec![0usize; n];
+        for layer in &self.layers {
+            let words = layer.data.words();
+            let zeros = layer.num_zeros();
+            let mut z = 0;
+            let mut o = zeros;
+            for p in 0..n {
+                let bit = (words[p / 64] >> (p % 64)) & 1;
+                let val = (vals[p] << 1) | bit as usize;
+                if bit == 0 {
+                    next_vals[z] = val;
+                    next_idx[z] = idx[p];
+                    z += 1;
+                } else {
+                    next_vals[o] = val;
+                    next_idx[o] = idx[p];
+                    o += 1;
+                }
+            }
+            std::mem::swap(&mut vals, &mut next_vals);
+            std::mem::swap(&mut idx, &mut next_idx);
+        }
+        let mut out = vec![0usize; n];
+        for p in 0..n {
+            out[idx[p]] = vals[p];
+        }
+        out
+    }
+
     /// Returns the number of values stored.
     #[inline(always)]
     pub fn len(&self) -> usize {
@@ -939,6 +991,53 @@ mod test {
         let wm = builder.freeze::<Rank9SelIndex>().unwrap();
         assert_eq!(wm.len(), text.len());
         assert_eq!(wm.access(2), Some('n' as usize));
+    }
+
+    /// Deterministic PRNG (splitmix64) for randomized tests without deps.
+    fn sm(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    fn random_ints(seed: u64, len: usize, alph_size: usize) -> Vec<usize> {
+        let mut st = seed;
+        (0..len).map(|_| sm(&mut st) as usize % alph_size).collect()
+    }
+
+    fn build_wm(alph_size: usize, ints: &[usize]) -> (ByteArea, WaveletMatrix<Rank9SelIndex>) {
+        let mut area = ByteArea::new().unwrap();
+        let mut sections = area.sections();
+        let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+            alph_size,
+            ints.iter().copied(),
+            &mut sections,
+        )
+        .unwrap();
+        (area, wm)
+    }
+
+    #[test]
+    fn to_vec_roundtrips_random_sequences() {
+        let mut seed = 0xA11C_E000;
+        for &(len, alph_size) in &[
+            (0usize, 1usize),
+            (1, 1),
+            (1, 300),
+            (7, 2),
+            (64, 5),
+            (65, 1000),
+            (1000, 3),
+            (1000, 941), // non-power-of-two alphabet
+            (4096, 65536),
+        ] {
+            seed += 1;
+            let ints = random_ints(seed, len, alph_size);
+            let (_area, wm) = build_wm(alph_size, &ints);
+            assert_eq!(wm.to_vec(), ints, "len={len} alph_size={alph_size}");
+        }
     }
 
     #[test]
