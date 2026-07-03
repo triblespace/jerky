@@ -4,6 +4,12 @@
 - None at the moment.
 
 ## Desired Functionality
+- Wire triblespace's `SuccinctRollup::merge` onto the new `WaveletMatrix`
+  merge APIs. Note the alphabet gap: archive segments carry per-segment value
+  domains, so codes are remapped during a merge — the structural
+  `merge_interleaved` applies only once segments share a code space; until
+  then the adapter path is `to_vec` + remap + `from_iter` (which already
+  avoids the sort).
 - Provide more usage examples and documentation.
 - Evaluate additional succinct data structures to include.
 - Investigate alternative dense-select index strategies to replace removed `DArrayIndex`.

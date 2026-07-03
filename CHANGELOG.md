@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added a linear structural merge for `WaveletMatrix`: `merge_interleaved`
+  (interleave N built matrices per a caller-supplied origin order by merging
+  bit-planes directly — no decode, no sort, no freeze permutation) and
+  `merge_sorted` (multi-way merge of matrices storing sorted runs — the LSMT
+  segment-compaction primitive). Emits a complete queryable matrix
+  (bit-planes + rank/select indexes); ~14x faster than decode+sort+rebuild at
+  5M values (`bench/src/merge_vs_rebuild.rs`).
+- Added `WaveletMatrix::to_vec`, a sequential-pass decoder (inverse freeze)
+  for recovering the whole stored sequence, and
+  `BitVectorBuilder::words_mut` for bulk word-level writes.
 - Allowed `WaveletMatrix` builders to construct empty sequences, skipping layer
   permutations for zero-length inputs and covering the case with a regression
   test.

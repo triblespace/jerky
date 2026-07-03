@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 jerky = { path = "..", features = ["intrinsics"] } # Recommend to set RUSTFLAGS="-C target-cpu=native"
 rand = "0.8.4"
+anybytes = { version = "0.20.2", features = ["zerocopy", "mmap"] }
 rand_chacha = "0.3.1"
 suffix = "1.3.0"
 
@@ -45,3 +46,7 @@ path = "src/mem_intvec.rs"
 [[bin]]
 name = "mem_chrseq"
 path = "src/mem_chrseq.rs"
+
+[[bin]]
+name = "merge_vs_rebuild"
+path = "src/merge_vs_rebuild.rs"
