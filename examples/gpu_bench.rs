@@ -25,7 +25,7 @@ const ALPH: usize = 1 << 16; // 64 Ki alphabet -> 16 layers
 const SWEEP: &[usize] = &[
     256, 1_000, 4_000, 16_000, 65_536, 100_000, 262_144, 1_000_000,
 ];
-const MAIN: &[usize] = &[1_000, 100_000, 1_000_000];
+const MAIN: &[usize] = &[1_000, 4_000, 16_000, 65_536, 100_000, 1_000_000];
 
 /// splitmix64
 fn sm(state: &mut u64) -> u64 {
