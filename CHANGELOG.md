@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added zero-copy persistence and checked attachment for `Rank9SelIndex`, plus
+  `WaveletMatrix` helpers that write and reattach one layer index at a time in
+  MSB-to-LSB order. Checked attachment validates every rank/subrank and select
+  hint against the raw bit-vector words without allocating an index-sized
+  buffer, rejecting malformed or semantically incompatible sidecars. Wavelet
+  reconstruction now also bounds-checks raw section handles before AnyBytes
+  slicing, returning metadata errors instead of panicking on invalid ranges.
 - Added an optional `gpu` feature with GPU batch query kernels for
   `WaveletMatrix` (`jerky::gpu::GpuWaveletMatrix`, cubecl/wgpu): upload the
   bit-planes plus a flat rank-block directory once, then answer batches of

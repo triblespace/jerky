@@ -53,9 +53,20 @@ to obtain a descriptor with the required `SectionHandle`s, then hand both the
 metadata and the full `Bytes` region to `from_bytes`.
 
 For a wavelet matrix the metadata stores a handle to a slice of per-layer
-handles. Each handle in that slice points to the native-endian `usize` words
+handles. Each handle in that slice points to the native-endian `u64` words
 forming a single layer. Layers may reside anywhere in the arena and no longer
 need to be contiguous.
+
+Rank/select indexes can be persisted separately from those raw bit-vector
+words. `Rank9SelIndex::persist` writes its native-`usize` representation
+directly into a `SectionWriter`, while `from_bytes_for_data` attaches it only
+after validating every directory entry and select hint against the supplied
+`BitVectorData`. `WaveletMatrix::persist_layer_indexes` writes one such section
+per layer in MSB-to-LSB order, and
+`WaveletMatrix::from_bytes_with_persisted_indexes` reconstructs a matrix from
+the original metadata plus exactly that many checked index payloads. This
+separates immutable raw data from derived query indexes without silently
+trusting a semantically incompatible sidecar.
 
 ```rust
 use anybytes::ByteArea;

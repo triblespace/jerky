@@ -21,6 +21,7 @@ use crate::bit_vector::BitVectorDataMeta;
 use crate::bit_vector::BitVectorIndex;
 use crate::bit_vector::NumBits;
 use crate::bit_vector::Rank;
+use crate::bit_vector::Rank9SelIndex;
 use crate::bit_vector::Select;
 use crate::serialization::Serializable;
 use crate::utils;
@@ -100,6 +101,25 @@ pub struct WaveletMatrixMeta {
     pub len: usize,
     /// Handle to a slice of per-layer [`SectionHandle`]s stored in the byte arena.
     pub layers: SectionHandle<SectionHandle<u64>>,
+}
+
+fn validate_section_bounds<T>(
+    handle: SectionHandle<T>,
+    bytes: &Bytes,
+    description: &str,
+) -> Result<()> {
+    let end = handle
+        .offset
+        .checked_add(handle.len)
+        .ok_or_else(|| Error::invalid_metadata(format!("{description} handle range overflow")))?;
+    if end > bytes.len() {
+        return Err(Error::invalid_metadata(format!(
+            "{description} handle range {}..{end} exceeds {} bytes",
+            handle.offset,
+            bytes.len()
+        )));
+    }
+    Ok(())
 }
 
 /// Builder for [`WaveletMatrix`].
@@ -1065,6 +1085,86 @@ where
     }
 }
 
+impl<const SELECT1: bool, const SELECT0: bool> WaveletMatrix<Rank9SelIndex<SELECT1, SELECT0>> {
+    /// Persists the rank/select indexes for every layer in MSB-to-LSB order.
+    ///
+    /// Each returned handle identifies one complete
+    /// [`Rank9SelIndex::from_bytes`] payload. The bit-vector words remain in
+    /// the matrix's original arena and are not copied.
+    pub fn persist_layer_indexes(
+        &self,
+        writer: &mut SectionWriter<'_>,
+    ) -> Result<Vec<SectionHandle<usize>>> {
+        self.layers
+            .iter()
+            .map(|layer| layer.index.persist(writer))
+            .collect()
+    }
+
+    /// Reconstructs a matrix from its raw metadata and persisted layer indexes.
+    ///
+    /// `persisted_indexes` must contain exactly one native-`usize` index
+    /// payload per raw layer, in MSB-to-LSB order. Every payload is
+    /// semantically validated against that layer's bit-vector words before the
+    /// matrix is returned; malformed or incompatible indexes are rejected
+    /// rather than trusted.
+    pub fn from_bytes_with_persisted_indexes<J>(
+        meta: WaveletMatrixMeta,
+        bytes: Bytes,
+        persisted_indexes: J,
+    ) -> Result<Self>
+    where
+        J: IntoIterator<Item = Bytes>,
+    {
+        if meta.alph_width != utils::needed_bits(meta.alph_size) {
+            return Err(Error::invalid_metadata(format!(
+                "wavelet matrix alphabet width {} does not match alphabet size {}",
+                meta.alph_width, meta.alph_size
+            )));
+        }
+        validate_section_bounds(meta.layers, &bytes, "wavelet layer-table")?;
+        let handles_view = meta.layers.view(&bytes)?;
+        if handles_view.len() != meta.alph_width {
+            return Err(Error::invalid_metadata(format!(
+                "wavelet matrix stores {} layer handles, expected {}",
+                handles_view.len(),
+                meta.alph_width
+            )));
+        }
+
+        let mut persisted_indexes = persisted_indexes.into_iter();
+        let mut layers = Vec::with_capacity(meta.alph_width);
+        for (depth, h) in handles_view.iter().enumerate() {
+            validate_section_bounds(*h, &bytes, "wavelet raw layer")?;
+            let data = BitVectorData::from_bytes(
+                BitVectorDataMeta {
+                    len: meta.len,
+                    handle: *h,
+                },
+                bytes.clone(),
+            )?;
+            let index_bytes = persisted_indexes.next().ok_or_else(|| {
+                Error::invalid_metadata(format!(
+                    "missing persisted index for wavelet layer {depth}"
+                ))
+            })?;
+            let index = Rank9SelIndex::from_bytes_for_data(&data, index_bytes)?;
+            layers.push(BitVector::new(data, index));
+        }
+        if persisted_indexes.next().is_some() {
+            return Err(Error::invalid_metadata(
+                "too many persisted indexes for wavelet matrix",
+            ));
+        }
+
+        Ok(Self {
+            layers,
+            alph_size: meta.alph_size,
+            layers_handle: meta.layers,
+        })
+    }
+}
+
 impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
     type Meta = WaveletMatrixMeta;
     type Error = Error;
@@ -1079,9 +1179,18 @@ impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
     }
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        validate_section_bounds(meta.layers, &bytes, "wavelet layer-table")?;
         let handles_view = meta.layers.view(&bytes)?;
+        if handles_view.len() != meta.alph_width {
+            return Err(Error::invalid_metadata(format!(
+                "wavelet matrix stores {} layer handles, expected {}",
+                handles_view.len(),
+                meta.alph_width
+            )));
+        }
         let mut layers = Vec::with_capacity(meta.alph_width);
         for h in handles_view.as_ref() {
+            validate_section_bounds(*h, &bytes, "wavelet raw layer")?;
             let data = BitVectorData::from_bytes(
                 BitVectorDataMeta {
                     len: meta.len,
@@ -1489,5 +1598,182 @@ mod test {
         let meta = wm.metadata();
         let other = WaveletMatrix::<Rank9SelIndex>::from_bytes(meta, bytes).unwrap();
         assert_eq!(wm, other);
+    }
+
+    fn persisted_index_bytes(
+        wm: &WaveletMatrix<Rank9SelIndex>,
+    ) -> (Bytes, Vec<SectionHandle<usize>>) {
+        let mut area = ByteArea::new().unwrap();
+        let mut writer = area.sections();
+        let handles = wm.persist_layer_indexes(&mut writer).unwrap();
+        (area.freeze().unwrap(), handles)
+    }
+
+    #[test]
+    fn persisted_layer_indexes_randomized_query_parity() {
+        let mut state = 0xA5A5_173B_D00D_F00Du64;
+        for &(alph_size, len) in &[
+            (1usize, 0usize),
+            (1, 17),
+            (2, 65),
+            (3, 127),
+            (17, 513),
+            (257, 1025),
+        ] {
+            let values: Vec<usize> = (0..len)
+                .map(|_| {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    (state as usize) % alph_size
+                })
+                .collect();
+            let mut raw_area = ByteArea::new().unwrap();
+            let mut raw_writer = raw_area.sections();
+            let matrix = WaveletMatrix::<Rank9SelIndex>::from_iter(
+                alph_size,
+                values.iter().copied(),
+                &mut raw_writer,
+            )
+            .unwrap();
+            let meta = matrix.metadata();
+            let raw_bytes = raw_area.freeze().unwrap();
+            let (index_bytes, handles) = persisted_index_bytes(&matrix);
+            let attached = WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                meta,
+                raw_bytes,
+                handles.iter().map(|h| h.bytes(&index_bytes)),
+            )
+            .unwrap();
+
+            assert_eq!(attached.to_vec(), values);
+            assert_eq!(attached.alph_size(), matrix.alph_size());
+            assert_eq!(attached.alph_width(), matrix.alph_width());
+            for pos in 0..len {
+                assert_eq!(attached.access(pos), matrix.access(pos));
+            }
+            for value in 0..alph_size {
+                for &pos in &[0, len / 3, len] {
+                    assert_eq!(attached.rank(pos, value), matrix.rank(pos, value));
+                }
+                let count = values.iter().filter(|&&x| x == value).count();
+                for k in 0..=count {
+                    assert_eq!(attached.select(k, value), matrix.select(k, value));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn persisted_layer_indexes_enforce_arity_order_and_metadata() {
+        let values: Vec<usize> = (0..130)
+            .map(|i| {
+                let pos = i % 64;
+                let high = ((pos < 3) as usize) * 4;
+                let middle = ((pos < 17) as usize) * 2;
+                high | middle | (pos < 41) as usize
+            })
+            .collect();
+        let mut raw_area = ByteArea::new().unwrap();
+        let mut raw_writer = raw_area.sections();
+        let matrix =
+            WaveletMatrix::<Rank9SelIndex>::from_iter(8, values.iter().copied(), &mut raw_writer)
+                .unwrap();
+        let meta = matrix.metadata();
+        let raw_bytes = raw_area.freeze().unwrap();
+        let (index_bytes, handles) = persisted_index_bytes(&matrix);
+        assert!(handles.len() > 1);
+        assert_ne!(
+            matrix.layers.first().unwrap().index,
+            matrix.layers.last().unwrap().index
+        );
+
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                meta,
+                raw_bytes.clone(),
+                handles[..handles.len() - 1]
+                    .iter()
+                    .map(|h| h.bytes(&index_bytes)),
+            )
+            .is_err()
+        );
+
+        let mut too_many: Vec<Bytes> = handles.iter().map(|h| h.bytes(&index_bytes)).collect();
+        too_many.push(Bytes::empty());
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                meta,
+                raw_bytes.clone(),
+                too_many,
+            )
+            .is_err()
+        );
+
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                meta,
+                raw_bytes.clone(),
+                handles.iter().rev().map(|h| h.bytes(&index_bytes)),
+            )
+            .is_err()
+        );
+
+        let mut wrong_width = meta;
+        wrong_width.alph_width -= 1;
+        assert!(
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                wrong_width,
+                raw_bytes,
+                handles.iter().map(|h| h.bytes(&index_bytes)),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn persisted_layer_attach_rejects_out_of_bounds_handles_without_panicking() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        let values: Vec<usize> = (0..130).map(|i| (i * 17) % 31).collect();
+        let mut raw_area = ByteArea::new().unwrap();
+        let mut raw_writer = raw_area.sections();
+        let matrix =
+            WaveletMatrix::<Rank9SelIndex>::from_iter(31, values.iter().copied(), &mut raw_writer)
+                .unwrap();
+        let meta = matrix.metadata();
+        let raw_bytes = raw_area.freeze().unwrap();
+        let (index_bytes, handles) = persisted_index_bytes(&matrix);
+
+        let mut bad_table = meta;
+        bad_table.layers.offset = usize::MAX;
+        let table_result = catch_unwind(AssertUnwindSafe(|| {
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                bad_table,
+                raw_bytes.clone(),
+                handles.iter().map(|h| h.bytes(&index_bytes)),
+            )
+        }));
+        assert!(matches!(table_result, Ok(Err(_))));
+
+        assert_eq!(raw_bytes.len() % std::mem::size_of::<usize>(), 0);
+        let mut raw_words: Vec<usize> = raw_bytes
+            .as_ref()
+            .chunks_exact(std::mem::size_of::<usize>())
+            .map(|chunk| {
+                let mut word = [0u8; std::mem::size_of::<usize>()];
+                word.copy_from_slice(chunk);
+                usize::from_ne_bytes(word)
+            })
+            .collect();
+        let layer_table_word = meta.layers.offset / std::mem::size_of::<usize>();
+        raw_words[layer_table_word] = usize::MAX;
+        let corrupt_raw = Bytes::from_source(raw_words);
+        let layer_result = catch_unwind(AssertUnwindSafe(|| {
+            WaveletMatrix::<Rank9SelIndex>::from_bytes_with_persisted_indexes(
+                meta,
+                corrupt_raw,
+                handles.iter().map(|h| h.bytes(&index_bytes)),
+            )
+        }));
+        assert!(matches!(layer_result, Ok(Err(_))));
     }
 }

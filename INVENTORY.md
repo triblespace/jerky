@@ -69,6 +69,10 @@
 - Provide a derive macro for the new `Metadata` trait to simplify implementing
   zero-copy metadata structs.
 ## Discovered Issues
+- Upstream checked `SectionHandle::bytes`/`view` slicing to AnyBytes 0.20.x.
+  `view` returns a `Result`, but both paths currently compute `offset + len` and
+  slice before validation, so overflow or out-of-bounds handles can panic and
+  every caller must preflight ranges manually.
 - `katex.html` performs manual string replacements; consider DOM-based manipulation.
 - Revisit zero-copy storage strategy: avoid extra copies when storing serialized bytes in structures.
 - Enforce that `DacsByte` always retains at least one level instead of relying on defensive length checks.
