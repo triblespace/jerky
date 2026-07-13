@@ -95,6 +95,17 @@ oversubscription pays off at scale: at 1M-query batches an M4 Max runs
 around 16k–65k queries per batch. Use it for large analytic batches; keep
 point lookups on the CPU form. Run the honest comparison on your hardware:
 
+For multi-kernel query execution, `DeviceU32Buffer` plus
+`GpuWaveletMatrix::rank_batch_resident`/`rank_batch_into` keep rank inputs and
+outputs on the device. Downstream CubeCL kernels can consume the typed array
+arguments, with a single `DeviceU32Buffer::read` at the end of the pipeline;
+the slice-based `rank_batch` is implemented as the host convenience path.
+Matrices built from clones of one `GpuContext` safely share resident buffers,
+which supports query pipelines spanning several wavelet matrices. For
+device-compacted frontiers, `DeviceBatchMeta` stores `[logical_len, capacity]`
+separately from the persistent/exclusive `DeviceDispatch`; dynamic rank uses
+indirect dispatch but still guards every probe by the device logical length.
+
 ```console
 cargo run --release --features gpu --example gpu_bench
 ```

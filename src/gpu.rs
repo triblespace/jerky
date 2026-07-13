@@ -31,14 +31,21 @@
 //!   `cargo run --release --features gpu --example gpu_bench` on your
 //!   hardware) the fixed dispatch/sync cost dominates and the CPU wins.
 //!
-//! # Downstream adapter shape
+//! # Device-resident pipelines
 //!
-//! A consumer like triblespace's `SuccinctArchive` evaluates per-clause
-//! constraints by probing the same wavelet matrix for every proposed element.
-//! The adapter shape is: collect the per-clause probe set host-side, call one
-//! `*_batch` method per clause (one sync each), and only then branch on the
-//! results. Do **not** wrap single-probe call sites — that reintroduces a
-//! sync per query and is orders of magnitude slower than the CPU path.
+//! [`DeviceU32Buffer`] and [`GpuWaveletMatrix::rank_batch_into`] let a consumer
+//! keep rank positions, values, and results on the same device across several
+//! CubeCL kernels. The slice-based [`GpuWaveletMatrix::rank_batch`] remains the
+//! convenient upload-dispatch-readback form; a multi-kernel query pipeline
+//! should upload or produce its inputs once, chain resident launches, and call
+//! [`DeviceU32Buffer::read`] only for the final result. Do **not** wrap
+//! single-probe call sites — that reintroduces a sync per query and is orders of
+//! magnitude slower than the CPU path. Construct several matrices from clones
+//! of one [`GpuContext`] when a pipeline spans multiple wavelet matrices.
+//! Device-compacted frontiers use separate [`DeviceBatchMeta`] and
+//! [`DeviceDispatch`] records with
+//! [`rank_batch_into_dynamic`](GpuWaveletMatrix::rank_batch_into_dynamic), so
+//! capacity-sized buffers never turn spare slots into queries.
 //!
 //! # Limits
 //!
@@ -50,6 +57,11 @@
 //!   ~6% rank directory).
 //! - Queries return exactly what the CPU API returns, including `None` for
 //!   out-of-range arguments.
+//! - The API is runtime-generic and has parity when a downstream crate enables
+//!   CubeCL's `CpuRuntime`, but CubeCL 0.10 resolves CPU indirect dispatch by
+//!   flushing its stream and reading the dispatch record. Semantics match
+//!   WGPU; the CPU backend does not preserve WGPU's fully asynchronous
+//!   indirect-scheduling behavior.
 //!
 //! # Example
 //!
@@ -84,7 +96,7 @@
 // inside this feature-gated module.
 #![allow(clippy::incompatible_msrv)]
 
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 use cubecl::client::ComputeClient;
 use cubecl::prelude::*;
@@ -102,6 +114,10 @@ const WORDS_PER_BLOCK: u32 = 16;
 const NONE_SENTINEL: u32 = u32::MAX;
 /// wgpu's per-dimension dispatch limit.
 const MAX_GROUPS_PER_DIM: u32 = 65_535;
+/// `[logical_len, capacity]` control record consumed as ordinary storage.
+const BATCH_META_WORDS: usize = 2;
+/// `[workgroups_x, workgroups_y, workgroups_z]` indirect dispatch record.
+const DISPATCH_WORDS: usize = 3;
 
 // ---------------------------------------------------------------------------
 // device-side primitives
@@ -256,6 +272,44 @@ fn wm_access_kernel(
     }
 }
 
+#[cube]
+#[allow(clippy::too_many_arguments)]
+fn wm_rank_one(
+    words: &Array<u32>,
+    counts: &Array<u32>,
+    zeros: &Array<u32>,
+    pos: u32,
+    val: u32,
+    n: u32,
+    wpl: u32,
+    bpl: u32,
+    num_layers: u32,
+) -> u32 {
+    let mut result = 0xFFFF_FFFFu32;
+    if pos <= n {
+        let mut s = u32::new(0);
+        let mut e = pos;
+        let mut l = u32::new(0);
+        while l < num_layers {
+            let wo = l * wpl;
+            let bo = l * bpl;
+            let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
+            let rs = layer_rank1(words, counts, wo, bo, s);
+            let re = layer_rank1(words, counts, wo, bo, e);
+            if bit == 1u32 {
+                s = rs + zeros[l as usize];
+                e = re + zeros[l as usize];
+            } else {
+                s -= rs;
+                e -= re;
+            }
+            l += 1u32;
+        }
+        result = e - s;
+    }
+    result
+}
+
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
 fn wm_rank_kernel(
@@ -272,31 +326,42 @@ fn wm_rank_kernel(
 ) {
     let t = ABSOLUTE_POS;
     if t < pos_q.len() {
-        let pos = pos_q[t];
-        if pos > n {
-            out[t] = 0xFFFF_FFFFu32;
-        } else {
-            let val = val_q[t];
-            let mut s = u32::new(0);
-            let mut e = pos;
-            let mut l = u32::new(0);
-            while l < num_layers {
-                let wo = l * wpl;
-                let bo = l * bpl;
-                let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
-                let rs = layer_rank1(words, counts, wo, bo, s);
-                let re = layer_rank1(words, counts, wo, bo, e);
-                if bit == 1u32 {
-                    s = rs + zeros[l as usize];
-                    e = re + zeros[l as usize];
-                } else {
-                    s -= rs;
-                    e -= re;
-                }
-                l += 1u32;
-            }
-            out[t] = e - s;
-        }
+        out[t] = wm_rank_one(
+            words, counts, zeros, pos_q[t], val_q[t], n, wpl, bpl, num_layers,
+        );
+    }
+}
+
+#[cube(launch_unchecked)]
+#[allow(clippy::too_many_arguments)]
+fn wm_rank_dynamic_kernel(
+    words: &Array<u32>,
+    counts: &Array<u32>,
+    zeros: &Array<u32>,
+    pos_q: &Array<u32>,
+    val_q: &Array<u32>,
+    out: &mut Array<u32>,
+    batch_meta: &Array<u32>,
+    n: u32,
+    wpl: u32,
+    bpl: u32,
+    num_layers: u32,
+) {
+    let t = ABSOLUTE_POS;
+    let logical_len = batch_meta[0] as usize;
+    let declared_capacity = batch_meta[1] as usize;
+    // Both device-produced logical length and declared capacity are untrusted
+    // inputs. Clamp them against the actual typed buffer bounds so a malformed
+    // producer can under-process but can never make rank touch spare slots.
+    if t < logical_len
+        && t < declared_capacity
+        && t < pos_q.len()
+        && t < val_q.len()
+        && t < out.len()
+    {
+        out[t] = wm_rank_one(
+            words, counts, zeros, pos_q[t], val_q[t], n, wpl, bpl, num_layers,
+        );
     }
 }
 
@@ -411,11 +476,329 @@ fn wm_quantile_kernel(
 // host side
 // ---------------------------------------------------------------------------
 
+/// A shared CubeCL client capability for matrices and typed resident buffers
+/// that may safely participate in one device pipeline.
+///
+/// Clones preserve a private identity token as well as the client. Jerky rank
+/// launches accept buffers only when their context identity matches the
+/// matrix's, so separately-created contexts fail closed while several matrices
+/// constructed from clones of one context can share inputs and outputs.
+pub struct GpuContext<R: Runtime> {
+    client: ComputeClient<R>,
+    identity: Arc<()>,
+}
+
+impl<R: Runtime> Clone for GpuContext<R> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            identity: self.identity.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> GpuContext<R> {
+    /// Wraps a CubeCL client in a new, private compatibility domain.
+    ///
+    /// Clone this context when several [`GpuWaveletMatrix`] instances and
+    /// buffers must compose in one resident pipeline. Constructing another
+    /// context, even from a clone of the same raw client, intentionally creates
+    /// a distinct domain.
+    pub fn new(client: ComputeClient<R>) -> Self {
+        Self {
+            client,
+            identity: Arc::new(()),
+        }
+    }
+
+    /// Returns the CubeCL client for launching downstream kernels.
+    pub fn client(&self) -> &ComputeClient<R> {
+        &self.client
+    }
+
+    /// Uploads `values` into a typed device-resident buffer.
+    ///
+    /// Upload is enqueued without a host readback or synchronization. Empty
+    /// logical buffers retain a one-word backing allocation so they remain
+    /// bindable on runtimes that reject zero-byte storage buffers.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the element count does not fit in the `u32`
+    /// index space used by CubeCL query kernels.
+    pub fn upload_u32(&self, values: &[u32]) -> Result<DeviceU32Buffer<R>> {
+        validate_batch_len(values.len())?;
+        let handle = if values.is_empty() {
+            self.client.create_from_slice(u32::as_bytes(&[0]))
+        } else {
+            self.client.create_from_slice(u32::as_bytes(values))
+        };
+        Ok(DeviceU32Buffer {
+            context: self.clone(),
+            handle,
+            len: values.len(),
+        })
+    }
+
+    /// Allocates an uninitialized typed device-resident buffer.
+    ///
+    /// Kernels must initialize every element before it is read. Empty logical
+    /// buffers retain a one-word backing allocation so they remain bindable on
+    /// runtimes that reject zero-byte storage buffers.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the element count does not fit in the `u32`
+    /// index space used by CubeCL query kernels or its byte size overflows.
+    pub fn empty_u32(&self, len: usize) -> Result<DeviceU32Buffer<R>> {
+        validate_batch_len(len)?;
+        let size = len
+            .max(1)
+            .checked_mul(std::mem::size_of::<u32>())
+            .ok_or_else(|| Error::invalid_argument("device buffer byte length overflow"))?;
+        Ok(DeviceU32Buffer {
+            context: self.clone(),
+            handle: self.client.empty(size),
+            len,
+        })
+    }
+
+    /// Creates an ordinary storage record `[logical_len, capacity]` for a
+    /// device-produced batch.
+    ///
+    /// Downstream producer kernels may update the logical length through
+    /// [`DeviceBatchMeta::output_arg`]. The capacity remains host-known and is
+    /// checked against every data buffer before a dynamic rank launch.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if either value does not fit in `u32` or if
+    /// `logical_len > capacity`.
+    pub fn batch_meta(&self, logical_len: usize, capacity: usize) -> Result<DeviceBatchMeta<R>> {
+        validate_logical_capacity(logical_len, capacity)?;
+        let words = [logical_len as u32, capacity as u32];
+        Ok(DeviceBatchMeta {
+            context: self.clone(),
+            handle: self.client.create_from_slice(u32::as_bytes(&words)),
+            capacity,
+        })
+    }
+
+    /// Creates an exclusive persistent indirect-dispatch record for a
+    /// device-produced batch.
+    ///
+    /// The record starts as `[ceil(logical_len / cube_dim.num_elems()), 1, 1]`.
+    /// A producer kernel may update it through [`DeviceDispatch::output_arg`]
+    /// before a consumer launches with [`DeviceDispatch::cube_count`]. Its
+    /// allocation is deliberately persistent/exclusive: CubeCL's pooled small
+    /// handles may share one WGPU buffer, while WGPU applies `INDIRECT` versus
+    /// storage-usage conflicts at whole-buffer granularity.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned for invalid lengths, an unsupported cube shape, or
+    /// a capacity whose one-dimensional dispatch exceeds the device limit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the CubeCL runtime cannot create a persistent allocation.
+    pub fn batch_dispatch(
+        &self,
+        logical_len: usize,
+        capacity: usize,
+        cube_dim: CubeDim,
+    ) -> Result<DeviceDispatch<R>> {
+        validate_logical_capacity(logical_len, capacity)?;
+        let units = validate_cube_dim(&self.client, cube_dim)?;
+        let max_groups = (capacity as u32).div_ceil(units);
+        let max_x = self.client.properties().hardware.max_cube_count.0;
+        if max_groups > max_x {
+            return Err(Error::invalid_argument(format!(
+                "batch capacity {capacity} needs {max_groups} x-workgroups, device limit is {max_x}"
+            )));
+        }
+        let words = [(logical_len as u32).div_ceil(units), 1, 1];
+        let handle = self
+            .client
+            .memory_persistent_allocation((), |()| {
+                self.client.create_from_slice(u32::as_bytes(&words))
+            })
+            .expect("persistent indirect-dispatch allocation");
+        Ok(DeviceDispatch {
+            context: self.clone(),
+            handle,
+            capacity,
+            cube_dim,
+        })
+    }
+
+    fn owns(&self, buffer: &DeviceU32Buffer<R>) -> bool {
+        Arc::ptr_eq(&self.identity, &buffer.context.identity)
+    }
+
+    fn owns_meta(&self, meta: &DeviceBatchMeta<R>) -> bool {
+        Arc::ptr_eq(&self.identity, &meta.context.identity)
+    }
+
+    fn owns_dispatch(&self, dispatch: &DeviceDispatch<R>) -> bool {
+        Arc::ptr_eq(&self.identity, &dispatch.context.identity)
+    }
+}
+
+/// Device-resident `[logical_len, capacity]` metadata for a dynamic batch.
+///
+/// This ordinary storage buffer is intentionally distinct from
+/// [`DeviceDispatch`]: WGPU forbids binding an indirect-dispatch buffer as
+/// storage in the consuming kernel. A dynamic rank kernel defensively clamps
+/// both metadata words against the typed data-buffer capacity.
+pub struct DeviceBatchMeta<R: Runtime> {
+    context: GpuContext<R>,
+    handle: Handle,
+    capacity: usize,
+}
+
+impl<R: Runtime> DeviceBatchMeta<R> {
+    /// Returns the host-known maximum number of live batch elements.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Creates a typed CubeCL input argument for a consuming kernel.
+    pub fn input_arg(&self) -> ArrayArg<R> {
+        // SAFETY: the context allocates exactly two initialized `u32` words.
+        unsafe { ArrayArg::from_raw_parts(self.handle.clone(), BATCH_META_WORDS) }
+    }
+
+    /// Creates a typed CubeCL output argument for a producer kernel.
+    ///
+    /// Producers must preserve `[logical_len, capacity]`, with
+    /// `logical_len <= capacity`. Consumers still clamp both words against the
+    /// actual data-buffer capacity, so malformed device metadata cannot cause
+    /// an out-of-bounds rank probe.
+    pub fn output_arg(&mut self) -> ArrayArg<R> {
+        // SAFETY: see `input_arg`; the mutable borrow represents producer
+        // access to the complete two-word record.
+        unsafe { ArrayArg::from_raw_parts(self.handle.clone(), BATCH_META_WORDS) }
+    }
+}
+
+/// An exclusive persistent `[x, y, z]` indirect-dispatch record.
+///
+/// The record carries the [`CubeDim`] used to interpret its workgroup count
+/// and the host-known capacity it may cover. Bind it as storage only in a
+/// producer kernel, then as indirect dispatch through [`cube_count`](Self::cube_count)
+/// in a later consumer launch; never bind it as storage in that same consumer.
+pub struct DeviceDispatch<R: Runtime> {
+    context: GpuContext<R>,
+    handle: Handle,
+    capacity: usize,
+    cube_dim: CubeDim,
+}
+
+impl<R: Runtime> DeviceDispatch<R> {
+    /// Returns the maximum number of batch elements represented by the record.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Returns the workgroup shape paired with this indirect record.
+    pub fn cube_dim(&self) -> CubeDim {
+        self.cube_dim
+    }
+
+    /// Creates a typed CubeCL output argument for a producer kernel.
+    ///
+    /// The producer must write `[x, y, z]` counts compatible with
+    /// [`cube_dim`](Self::cube_dim) and must not exceed the capacity or device
+    /// limits checked when this record was created.
+    pub fn output_arg(&mut self) -> ArrayArg<R> {
+        // SAFETY: the persistent allocation contains exactly three `u32`
+        // words and is exclusively owned by this typed wrapper.
+        unsafe { ArrayArg::from_raw_parts(self.handle.clone(), DISPATCH_WORDS) }
+    }
+
+    /// Returns this record as CubeCL's indirect dispatch count.
+    pub fn cube_count(&self) -> CubeCount {
+        CubeCount::Dynamic(self.handle.clone().binding())
+    }
+}
+
+/// An owned, device-resident array of `u32` values allocated by a
+/// [`GpuContext`].
+///
+/// Its handle and length stay private; [`input_arg`](Self::input_arg) and
+/// [`output_arg`](Self::output_arg) expose a length-checked CubeCL array
+/// argument for downstream kernels without exposing raw byte handles.
+///
+/// Device work is enqueued asynchronously. Calling [`read`](Self::read) is the
+/// synchronization point. A pipeline should enqueue its kernels and final read
+/// on one CubeCL stream (as the single-threaded launch sequence does here);
+/// stream coordination across host threads remains CubeCL's responsibility.
+pub struct DeviceU32Buffer<R: Runtime> {
+    context: GpuContext<R>,
+    handle: Handle,
+    len: usize,
+}
+
+impl<R: Runtime> DeviceU32Buffer<R> {
+    /// Returns the number of `u32` elements in the buffer.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns whether the buffer contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the CubeCL client that owns this buffer.
+    ///
+    /// Use this client when launching a downstream CubeCL kernel with
+    /// [`input_arg`](Self::input_arg) or [`output_arg`](Self::output_arg).
+    pub fn client(&self) -> &ComputeClient<R> {
+        self.context.client()
+    }
+
+    /// Creates a typed CubeCL input argument over the complete buffer.
+    pub fn input_arg(&self) -> ArrayArg<R> {
+        // SAFETY: `handle` was allocated by `context.client` for at least
+        // `len * size_of::<u32>()` bytes and the element count is immutable.
+        unsafe { ArrayArg::from_raw_parts(self.handle.clone(), self.len) }
+    }
+
+    /// Creates a typed CubeCL output argument over the complete buffer.
+    ///
+    /// The mutable borrow makes write intent explicit at Jerky's wrapper
+    /// boundary. CubeCL arguments own cloned handles, so launch-level aliasing
+    /// remains the downstream kernel author's responsibility.
+    pub fn output_arg(&mut self) -> ArrayArg<R> {
+        // SAFETY: See `input_arg`; this method additionally requires exclusive
+        // access to the typed wrapper while creating the output argument.
+        unsafe { ArrayArg::from_raw_parts(self.handle.clone(), self.len) }
+    }
+
+    /// Reads all values back to the host, synchronizing queued device work.
+    ///
+    /// A resident pipeline should call this only for its final output.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the CubeCL runtime cannot read the device buffer.
+    pub fn read(&self) -> Vec<u32> {
+        let bytes = self
+            .context
+            .client
+            .read_one(self.handle.clone())
+            .expect("GPU readback");
+        u32::from_bytes(&bytes)[..self.len].to_vec()
+    }
+}
+
 /// A [`WaveletMatrix`] uploaded to the GPU, answering batches of queries with
 /// one dispatch and one synchronization per batch. See the [module docs](self)
 /// for when this beats the CPU form and when it does not.
 pub struct GpuWaveletMatrix<R: Runtime> {
-    client: ComputeClient<R>,
+    context: GpuContext<R>,
     /// Bit-planes as `u32` words, one padded stripe of `wpl` words per layer.
     words: Handle,
     words_len: usize,
@@ -446,6 +829,22 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
     /// `wm.alph_size() > u32::MAX` (device positions and values are `u32`,
     /// with `u32::MAX` reserved as the miss sentinel).
     pub fn new<I: BitVectorIndex>(client: ComputeClient<R>, wm: &WaveletMatrix<I>) -> Result<Self> {
+        Self::with_context(GpuContext::new(client), wm)
+    }
+
+    /// Uploads `wm` into an existing context's compatibility domain.
+    ///
+    /// Construct several matrices from clones of the same context when their
+    /// resident rank launches must share typed input or output buffers.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if `wm.len() >= u32::MAX` or
+    /// `wm.alph_size() > u32::MAX`.
+    pub fn with_context<I: BitVectorIndex>(
+        context: GpuContext<R>,
+        wm: &WaveletMatrix<I>,
+    ) -> Result<Self> {
         if wm.len() >= u32::MAX as usize {
             return Err(Error::invalid_argument(format!(
                 "GPU form requires len() < u32::MAX, but got {}",
@@ -498,12 +897,14 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         let zeros_len = zeros_host.len().max(1);
         zeros_host.resize(zeros_len, 0);
 
-        let words = client.create_from_slice(u32::as_bytes(&words_host));
-        let counts = client.create_from_slice(u32::as_bytes(&counts_host));
-        let zeros = client.create_from_slice(u32::as_bytes(&zeros_host));
+        let words = context.client.create_from_slice(u32::as_bytes(&words_host));
+        let counts = context
+            .client
+            .create_from_slice(u32::as_bytes(&counts_host));
+        let zeros = context.client.create_from_slice(u32::as_bytes(&zeros_host));
 
         Ok(Self {
-            client,
+            context,
             words,
             words_len,
             counts,
@@ -537,6 +938,41 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         self.alph_width as usize
     }
 
+    /// Returns the shared context that owns this matrix's device allocations.
+    pub fn context(&self) -> &GpuContext<R> {
+        &self.context
+    }
+
+    /// Uploads `values` into a typed device-resident buffer owned by this
+    /// matrix's shared context.
+    ///
+    /// Upload is enqueued without a host readback or synchronization. Empty
+    /// logical buffers retain a one-word backing allocation so they remain
+    /// bindable on runtimes that reject zero-byte storage buffers.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the element count does not fit in the `u32`
+    /// index space used by CubeCL query kernels.
+    pub fn upload_u32(&self, values: &[u32]) -> Result<DeviceU32Buffer<R>> {
+        self.context.upload_u32(values)
+    }
+
+    /// Allocates an uninitialized typed device-resident buffer owned by this
+    /// matrix's shared context.
+    ///
+    /// Kernels must initialize every element before it is read. Empty logical
+    /// buffers retain a one-word backing allocation so they remain bindable on
+    /// runtimes that reject zero-byte storage buffers.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the element count does not fit in the `u32`
+    /// index space used by CubeCL query kernels or its byte size overflows.
+    pub fn empty_u32(&self, len: usize) -> Result<DeviceU32Buffer<R>> {
+        self.context.empty_u32(len)
+    }
+
     /// Batched [`WaveletMatrix::access`]: returns the integer at each
     /// position, or `None` where the position is out of bounds.
     ///
@@ -550,12 +986,12 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         }
         let pos_q: Vec<u32> = positions.iter().map(|&p| clamp_u32(p)).collect();
         let batch = pos_q.len();
-        let pos_h = self.client.create_from_slice(u32::as_bytes(&pos_q));
-        let out_h = self.client.empty(batch * 4);
+        let pos_h = self.context.client.create_from_slice(u32::as_bytes(&pos_q));
+        let out_h = self.context.client.empty(batch * 4);
         let (count, dim) = self.dispatch(batch);
         unsafe {
             wm_access_kernel::launch_unchecked::<R>(
-                &self.client,
+                &self.context.client,
                 count,
                 dim,
                 ArrayArg::from_raw_parts(self.words.clone(), self.words_len),
@@ -590,40 +1026,177 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
                 values.len()
             )));
         }
-        if positions.is_empty() {
-            return Ok(Vec::new());
-        }
-        if self.len == 0 {
-            return Ok(positions
-                .iter()
-                .map(|&p| if p == 0 { Some(0) } else { None })
-                .collect());
-        }
         let pos_q: Vec<u32> = positions.iter().map(|&p| clamp_u32(p)).collect();
         let val_q: Vec<u32> = values.iter().map(|&v| v as u32).collect();
-        let batch = pos_q.len();
-        let pos_h = self.client.create_from_slice(u32::as_bytes(&pos_q));
-        let val_h = self.client.create_from_slice(u32::as_bytes(&val_q));
-        let out_h = self.client.empty(batch * 4);
+        let positions = self.upload_u32(&pos_q)?;
+        let values = self.upload_u32(&val_q)?;
+        let output = self.rank_batch_resident(&positions, &values)?;
+        Ok(decode_results(output.read()))
+    }
+
+    /// Enqueues batched rank queries using device-resident inputs and returns
+    /// a device-resident output buffer.
+    ///
+    /// No host transfer or synchronization occurs. The returned `u32` values
+    /// use `u32::MAX` for out-of-range positions, matching the `None` entries
+    /// decoded by [`rank_batch`](Self::rank_batch). Use
+    /// [`rank_batch_into`](Self::rank_batch_into) to reuse an existing output
+    /// allocation.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the input lengths differ or either input belongs
+    /// to another [`GpuContext`].
+    pub fn rank_batch_resident(
+        &self,
+        positions: &DeviceU32Buffer<R>,
+        values: &DeviceU32Buffer<R>,
+    ) -> Result<DeviceU32Buffer<R>> {
+        if positions.len() != values.len() {
+            return Err(Error::invalid_argument(format!(
+                "positions and values must have equal lengths, got {} and {}",
+                positions.len(),
+                values.len()
+            )));
+        }
+        self.validate_owner("positions", positions)?;
+        self.validate_owner("values", values)?;
+        let mut output = self.empty_u32(positions.len())?;
+        self.rank_batch_into(positions, values, &mut output)?;
+        Ok(output)
+    }
+
+    /// Enqueues batched rank queries from device-resident `positions` and
+    /// `values` into an existing device-resident `output` buffer.
+    ///
+    /// This method only launches work; it performs no host transfer or
+    /// synchronization. All three buffers must have equal lengths and belong
+    /// to this matrix's [`GpuContext`]. Each output is the raw `u32` rank, with
+    /// `u32::MAX` denoting an out-of-range position.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned for mismatched lengths or buffer ownership.
+    pub fn rank_batch_into(
+        &self,
+        positions: &DeviceU32Buffer<R>,
+        values: &DeviceU32Buffer<R>,
+        output: &mut DeviceU32Buffer<R>,
+    ) -> Result<()> {
+        self.validate_owner("positions", positions)?;
+        self.validate_owner("values", values)?;
+        self.validate_owner("output", output)?;
+        if positions.len() != values.len() || positions.len() != output.len() {
+            return Err(Error::invalid_argument(format!(
+                "positions, values, and output must have equal lengths, got {}, {}, and {}",
+                positions.len(),
+                values.len(),
+                output.len()
+            )));
+        }
+        if positions.is_empty() {
+            return Ok(());
+        }
+
+        let batch = positions.len();
         let (count, dim) = self.dispatch(batch);
         unsafe {
             wm_rank_kernel::launch_unchecked::<R>(
-                &self.client,
+                &self.context.client,
                 count,
                 dim,
                 ArrayArg::from_raw_parts(self.words.clone(), self.words_len),
                 ArrayArg::from_raw_parts(self.counts.clone(), self.counts_len),
                 ArrayArg::from_raw_parts(self.zeros.clone(), self.alph_width as usize),
-                ArrayArg::from_raw_parts(pos_h, batch),
-                ArrayArg::from_raw_parts(val_h, batch),
-                ArrayArg::from_raw_parts(out_h.clone(), batch),
+                positions.input_arg(),
+                values.input_arg(),
+                output.output_arg(),
                 self.len,
                 self.wpl,
                 self.bpl,
                 self.alph_width,
             );
         }
-        Ok(self.read_results(out_h))
+        Ok(())
+    }
+
+    /// Enqueues rank for a device-produced logical prefix of capacity-sized
+    /// resident buffers using indirect dispatch.
+    ///
+    /// `meta` is ordinary `[logical_len, capacity]` storage read by the rank
+    /// kernel. `dispatch` is a separate exclusive `[x, y, z]` record used only
+    /// as [`CubeCount::Dynamic`]; it is deliberately not bound as storage in
+    /// the consuming kernel. Each thread checks the device logical length,
+    /// declared capacity, and actual buffer bounds before probing, so spare or
+    /// uninitialized capacity slots are never queried.
+    ///
+    /// All data buffers must have the same capacity. Their shared
+    /// [`GpuContext`], `meta`, and `dispatch` must also match. This method
+    /// enqueues work without a host read or synchronization.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned for mismatched capacities or compatibility
+    /// domains.
+    pub fn rank_batch_into_dynamic(
+        &self,
+        positions: &DeviceU32Buffer<R>,
+        values: &DeviceU32Buffer<R>,
+        output: &mut DeviceU32Buffer<R>,
+        meta: &DeviceBatchMeta<R>,
+        dispatch: &DeviceDispatch<R>,
+    ) -> Result<()> {
+        self.validate_owner("positions", positions)?;
+        self.validate_owner("values", values)?;
+        self.validate_owner("output", output)?;
+        if !self.context.owns_meta(meta) {
+            return Err(Error::invalid_argument(
+                "batch metadata was allocated by a different GpuContext",
+            ));
+        }
+        if !self.context.owns_dispatch(dispatch) {
+            return Err(Error::invalid_argument(
+                "dispatch record was allocated by a different GpuContext",
+            ));
+        }
+        let capacity = positions.len();
+        if values.len() != capacity
+            || output.len() != capacity
+            || meta.capacity() != capacity
+            || dispatch.capacity() != capacity
+        {
+            return Err(Error::invalid_argument(format!(
+                "positions, values, output, metadata, and dispatch capacities must match; got {}, {}, {}, {}, and {}",
+                positions.len(),
+                values.len(),
+                output.len(),
+                meta.capacity(),
+                dispatch.capacity()
+            )));
+        }
+        if capacity == 0 {
+            return Ok(());
+        }
+
+        unsafe {
+            wm_rank_dynamic_kernel::launch_unchecked::<R>(
+                &self.context.client,
+                dispatch.cube_count(),
+                dispatch.cube_dim(),
+                ArrayArg::from_raw_parts(self.words.clone(), self.words_len),
+                ArrayArg::from_raw_parts(self.counts.clone(), self.counts_len),
+                ArrayArg::from_raw_parts(self.zeros.clone(), self.alph_width as usize),
+                positions.input_arg(),
+                values.input_arg(),
+                output.output_arg(),
+                meta.input_arg(),
+                self.len,
+                self.wpl,
+                self.bpl,
+                self.alph_width,
+            );
+        }
+        Ok(())
     }
 
     /// Batched [`WaveletMatrix::select`]: for each `(ks[i], values[i])` pair,
@@ -652,13 +1225,13 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         let k_q: Vec<u32> = ks.iter().map(|&k| clamp_u32(k)).collect();
         let val_q: Vec<u32> = values.iter().map(|&v| v as u32).collect();
         let batch = k_q.len();
-        let k_h = self.client.create_from_slice(u32::as_bytes(&k_q));
-        let val_h = self.client.create_from_slice(u32::as_bytes(&val_q));
-        let out_h = self.client.empty(batch * 4);
+        let k_h = self.context.client.create_from_slice(u32::as_bytes(&k_q));
+        let val_h = self.context.client.create_from_slice(u32::as_bytes(&val_q));
+        let out_h = self.context.client.empty(batch * 4);
         let (count, dim) = self.dispatch(batch);
         unsafe {
             wm_select_kernel::launch_unchecked::<R>(
-                &self.client,
+                &self.context.client,
                 count,
                 dim,
                 ArrayArg::from_raw_parts(self.words.clone(), self.words_len),
@@ -707,14 +1280,17 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         let end_q: Vec<u32> = ranges.iter().map(|r| clamp_u32(r.end)).collect();
         let k_q: Vec<u32> = ks.iter().map(|&k| clamp_u32(k)).collect();
         let batch = k_q.len();
-        let start_h = self.client.create_from_slice(u32::as_bytes(&start_q));
-        let end_h = self.client.create_from_slice(u32::as_bytes(&end_q));
-        let k_h = self.client.create_from_slice(u32::as_bytes(&k_q));
-        let out_h = self.client.empty(batch * 4);
+        let start_h = self
+            .context
+            .client
+            .create_from_slice(u32::as_bytes(&start_q));
+        let end_h = self.context.client.create_from_slice(u32::as_bytes(&end_q));
+        let k_h = self.context.client.create_from_slice(u32::as_bytes(&k_q));
+        let out_h = self.context.client.empty(batch * 4);
         let (count, dim) = self.dispatch(batch);
         unsafe {
             wm_quantile_kernel::launch_unchecked::<R>(
-                &self.client,
+                &self.context.client,
                 count,
                 dim,
                 ArrayArg::from_raw_parts(self.words.clone(), self.words_len),
@@ -742,26 +1318,98 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
         (CubeCount::new_2d(gx, gy), CubeDim::new_1d(THREADS))
     }
 
+    fn validate_owner(&self, name: &str, buffer: &DeviceU32Buffer<R>) -> Result<()> {
+        if self.context.owns(buffer) {
+            Ok(())
+        } else {
+            Err(Error::invalid_argument(format!(
+                "{name} was allocated by a different GpuContext"
+            )))
+        }
+    }
+
     /// The batch's one synchronization: blocking readback + sentinel decode.
     fn read_results(&self, out: Handle) -> Vec<Option<usize>> {
-        let bytes = self.client.read_one(out).expect("GPU readback");
-        u32::from_bytes(&bytes)
-            .iter()
-            .map(|&v| {
-                if v == NONE_SENTINEL {
-                    None
-                } else {
-                    Some(v as usize)
-                }
-            })
-            .collect()
+        let bytes = self.context.client.read_one(out).expect("GPU readback");
+        decode_results(u32::from_bytes(&bytes).to_vec())
     }
+}
+
+fn decode_results(values: Vec<u32>) -> Vec<Option<usize>> {
+    values
+        .into_iter()
+        .map(|v| {
+            if v == NONE_SENTINEL {
+                None
+            } else {
+                Some(v as usize)
+            }
+        })
+        .collect()
 }
 
 /// Clamps a host position/rank argument into `u32` range; anything above is
 /// necessarily out of range on device (`len < u32::MAX`) and maps to `None`.
 fn clamp_u32(x: usize) -> u32 {
     x.min(u32::MAX as usize) as u32
+}
+
+fn validate_batch_len(len: usize) -> Result<()> {
+    if len <= u32::MAX as usize {
+        Ok(())
+    } else {
+        Err(Error::invalid_argument(format!(
+            "GPU batch length must fit in u32, but got {len}"
+        )))
+    }
+}
+
+fn validate_logical_capacity(logical_len: usize, capacity: usize) -> Result<()> {
+    validate_batch_len(logical_len)?;
+    validate_batch_len(capacity)?;
+    if logical_len <= capacity {
+        Ok(())
+    } else {
+        Err(Error::invalid_argument(format!(
+            "logical batch length {logical_len} exceeds capacity {capacity}"
+        )))
+    }
+}
+
+fn validate_cube_dim<R: Runtime>(client: &ComputeClient<R>, cube_dim: CubeDim) -> Result<u32> {
+    let units = cube_dim
+        .x
+        .checked_mul(cube_dim.y)
+        .and_then(|xy| xy.checked_mul(cube_dim.z))
+        .filter(|&units| units != 0)
+        .ok_or_else(|| {
+            Error::invalid_argument("cube dimensions must be nonzero and not overflow")
+        })?;
+    let hardware = &client.properties().hardware;
+    let max_dim = hardware.max_cube_dim;
+    if cube_dim.x > max_dim.0 || cube_dim.y > max_dim.1 || cube_dim.z > max_dim.2 {
+        return Err(Error::invalid_argument(format!(
+            "cube dimensions ({}, {}, {}) exceed device limit ({}, {}, {})",
+            cube_dim.x, cube_dim.y, cube_dim.z, max_dim.0, max_dim.1, max_dim.2
+        )));
+    }
+    if units > hardware.max_units_per_cube {
+        return Err(Error::invalid_argument(format!(
+            "cube has {units} units, device limit is {}",
+            hardware.max_units_per_cube
+        )));
+    }
+    Ok(units)
+}
+
+impl GpuContext<cubecl::wgpu::WgpuRuntime> {
+    /// Creates a compatibility domain on the default wgpu device (Metal on
+    /// macOS).
+    pub fn on_wgpu() -> Self {
+        let device = Default::default();
+        let client = cubecl::wgpu::WgpuRuntime::client(&device);
+        Self::new(client)
+    }
 }
 
 impl GpuWaveletMatrix<cubecl::wgpu::WgpuRuntime> {
@@ -771,8 +1419,6 @@ impl GpuWaveletMatrix<cubecl::wgpu::WgpuRuntime> {
     ///
     /// See [`Self::new`].
     pub fn on_wgpu<I: BitVectorIndex>(wm: &WaveletMatrix<I>) -> Result<Self> {
-        let device = Default::default();
-        let client = cubecl::wgpu::WgpuRuntime::client(&device);
-        Self::new(client, wm)
+        Self::with_context(GpuContext::on_wgpu(), wm)
     }
 }

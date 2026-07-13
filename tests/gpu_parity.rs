@@ -8,11 +8,44 @@
 #![cfg(all(feature = "gpu", target_pointer_width = "64"))]
 // One-element `&[Range]` arguments below are deliberate batch-of-one calls.
 #![allow(clippy::single_range_in_vec_init)]
+// The feature-gated CubeCL dependency already requires a much newer compiler
+// than the base crate's declared MSRV.
+#![allow(clippy::incompatible_msrv)]
 
 use anybytes::area::ByteArea;
+use cubecl::prelude::*;
 use jerky::bit_vector::Rank9SelIndex;
 use jerky::char_sequences::WaveletMatrix;
-use jerky::gpu::GpuWaveletMatrix;
+use jerky::gpu::{GpuContext, GpuWaveletMatrix};
+
+/// A deliberately separate downstream stage: if resident rank results can be
+/// consumed here before the one final host read, the public buffer API is
+/// sufficient to compose a multi-kernel query pipeline.
+#[cube(launch_unchecked)]
+fn consume_rank_kernel(ranks: &Array<u32>, consumed: &mut Array<u32>, mask: u32) {
+    let t = ABSOLUTE_POS;
+    if t < ranks.len() {
+        consumed[t] = ranks[t] ^ mask;
+    }
+}
+
+/// Mimics a scan/compaction stage that produces control entirely on device.
+/// Dispatch is written as storage here, then used only as indirect control by
+/// the rank consumer in the following launch.
+#[cube(launch_unchecked)]
+fn produce_batch_control(
+    meta: &mut Array<u32>,
+    dispatch: &mut Array<u32>,
+    logical_len: u32,
+    threads: u32,
+) {
+    if ABSOLUTE_POS == 0 {
+        meta[0] = logical_len;
+        dispatch[0] = logical_len.div_ceil(threads);
+        dispatch[1] = 1u32;
+        dispatch[2] = 1u32;
+    }
+}
 
 /// splitmix64: deterministic PRNG without deps.
 fn sm(state: &mut u64) -> u64 {
@@ -202,6 +235,172 @@ fn mismatched_lengths_are_rejected() {
     assert!(gpu.rank_batch(&[0, 1], &[0]).is_err());
     assert!(gpu.select_batch(&[0], &[0, 1]).is_err());
     assert!(gpu.quantile_batch(&[0..1], &[0, 0]).is_err());
+}
+
+#[test]
+fn resident_rank_chains_into_device_consumer_before_one_final_read() {
+    let (_area, wm, ints) = build(0x00D3_A1CE, 4096, 257);
+    let gpu = GpuWaveletMatrix::on_wgpu(&wm).unwrap();
+    let batch = 8193usize;
+    let positions_host: Vec<u32> = (0..batch)
+        .map(|i| match i % 11 {
+            0 => wm.len() as u32 + 1,
+            1 => wm.len() as u32,
+            _ => ((i * 37) % (wm.len() + 1)) as u32,
+        })
+        .collect();
+    let values_host: Vec<u32> = (0..batch)
+        .map(|i| {
+            if i % 7 == 0 {
+                (wm.alph_size() + i % 19) as u32
+            } else {
+                ints[(i * 53) % ints.len()] as u32
+            }
+        })
+        .collect();
+
+    // The upload is the producer boundary. Rank and the consumer below only
+    // enqueue device work; neither performs a host read.
+    let positions = gpu.upload_u32(&positions_host).unwrap();
+    let values = gpu.upload_u32(&values_host).unwrap();
+    let ranks = gpu.rank_batch_resident(&positions, &values).unwrap();
+    let mut consumed = gpu.empty_u32(batch).unwrap();
+    let mask = 0xA5A5_5A5Au32;
+    let groups = (batch as u32).div_ceil(256);
+    unsafe {
+        consume_rank_kernel::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            ranks.client(),
+            CubeCount::new_1d(groups),
+            CubeDim::new_1d(256),
+            ranks.input_arg(),
+            consumed.output_arg(),
+            mask,
+        );
+    }
+
+    // The only host read in the resident chain synchronizes both queued
+    // kernels. Compare the consumed values rather than reading ranks midway.
+    let actual = consumed.read();
+    let expected: Vec<u32> = positions_host
+        .iter()
+        .zip(&values_host)
+        .map(|(&position, &value)| {
+            wm.rank(position as usize, value as usize)
+                .map(|rank| rank as u32)
+                .unwrap_or(u32::MAX)
+                ^ mask
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn dynamic_resident_rank_uses_device_length_and_indirect_dispatch() {
+    let (_area, wm, ints) = build(0xD1CE_BA7C, 4096, 257);
+    let context = GpuContext::on_wgpu();
+    let gpu = GpuWaveletMatrix::with_context(context.clone(), &wm).unwrap();
+    let capacity = 8193usize;
+    let logical_len = 5003usize;
+    let positions_host: Vec<u32> = (0..capacity)
+        .map(|i| ((i * 43) % (wm.len() + 2)) as u32)
+        .collect();
+    let values_host: Vec<u32> = (0..capacity)
+        .map(|i| ints[(i * 59) % ints.len()] as u32)
+        .collect();
+    let poison = 0xC0DE_CAFEu32;
+    let mask = 0x5A5A_A5A5u32;
+
+    let positions = context.upload_u32(&positions_host).unwrap();
+    let values = context.upload_u32(&values_host).unwrap();
+    let mut ranks = context.upload_u32(&vec![poison; capacity]).unwrap();
+    let mut meta = context.batch_meta(0, capacity).unwrap();
+    let cube_dim = CubeDim::new_1d(64);
+    let mut dispatch = context.batch_dispatch(0, capacity, cube_dim).unwrap();
+
+    unsafe {
+        produce_batch_control::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            context.client(),
+            CubeCount::new_single(),
+            CubeDim::new_single(),
+            meta.output_arg(),
+            dispatch.output_arg(),
+            logical_len as u32,
+            cube_dim.num_elems(),
+        );
+    }
+    gpu.rank_batch_into_dynamic(&positions, &values, &mut ranks, &meta, &dispatch)
+        .unwrap();
+
+    // A separate full-capacity consumer makes the untouched tail observable
+    // without reading rank or metadata between device stages.
+    let mut consumed = context.empty_u32(capacity).unwrap();
+    unsafe {
+        consume_rank_kernel::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            context.client(),
+            CubeCount::new_1d((capacity as u32).div_ceil(256)),
+            CubeDim::new_1d(256),
+            ranks.input_arg(),
+            consumed.output_arg(),
+            mask,
+        );
+    }
+    let actual = consumed.read();
+    let expected: Vec<u32> = positions_host
+        .iter()
+        .zip(&values_host)
+        .enumerate()
+        .map(|(index, (&position, &value))| {
+            let rank = if index < logical_len {
+                wm.rank(position as usize, value as usize)
+                    .map(|rank| rank as u32)
+                    .unwrap_or(u32::MAX)
+            } else {
+                poison
+            };
+            rank ^ mask
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn resident_rank_rejects_foreign_and_mismatched_buffers() {
+    let (_area, wm, _ints) = build(0x000A_11CE, 128, 17);
+    let shared = GpuContext::on_wgpu();
+    let first = GpuWaveletMatrix::with_context(shared.clone(), &wm).unwrap();
+    let second = GpuWaveletMatrix::with_context(shared.clone(), &wm).unwrap();
+    let foreign = GpuWaveletMatrix::on_wgpu(&wm).unwrap();
+
+    let positions = first.upload_u32(&[0, 64, 128]).unwrap();
+    let values = first.upload_u32(&[0, 1, 2]).unwrap();
+    let short_values = first.upload_u32(&[0, 1]).unwrap();
+    let mut output = first.empty_u32(3).unwrap();
+    let mut short_output = first.empty_u32(2).unwrap();
+    let mut shared_output = second.empty_u32(3).unwrap();
+    let mut foreign_output = foreign.empty_u32(3).unwrap();
+
+    assert!(first
+        .rank_batch_into(&positions, &short_values, &mut output)
+        .is_err());
+    assert!(first
+        .rank_batch_into(&positions, &values, &mut short_output)
+        .is_err());
+    first
+        .rank_batch_into(&positions, &values, &mut shared_output)
+        .unwrap();
+    assert_eq!(
+        shared_output.read(),
+        vec![
+            wm.rank(0, 0).unwrap() as u32,
+            wm.rank(64, 1).unwrap() as u32,
+            wm.rank(128, 2).unwrap() as u32,
+        ]
+    );
+    assert!(first
+        .rank_batch_into(&positions, &values, &mut foreign_output)
+        .is_err());
+    assert!(shared.batch_meta(4, 3).is_err());
+    assert!(shared.batch_dispatch(0, 3, CubeDim::new_1d(0)).is_err());
 }
 
 #[test]

@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added device-resident `u32` buffers and `GpuWaveletMatrix` rank launch APIs
+  that accept resident positions/values and write resident results without a
+  host transfer or synchronization. The existing slice-based `rank_batch`
+  remains the convenient upload/launch/readback path, while CubeCL query
+  pipelines can now chain kernels and read back only their final output. A
+  cloneable `GpuContext` safely shares typed buffers across multiple matrices
+  while rejecting buffers from unrelated client domains. Dynamic resident
+  batches use separate ordinary `[logical_len, capacity]` metadata and an
+  exclusive persistent indirect-dispatch record; rank guards on the
+  device-produced logical length and never probes unused capacity slots.
 - Added zero-copy persistence and checked attachment for `Rank9SelIndex`, plus
   `WaveletMatrix` helpers that write and reattach one layer index at a time in
   MSB-to-LSB order. Checked attachment validates every rank/subrank and select
