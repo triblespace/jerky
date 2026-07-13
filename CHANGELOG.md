@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Extended the experimental GPU pipeline seam with caller-owned fixed and
+  device-length/indirect resident WaveletMatrix access, plus `GpuBitVector`
+  rank1/select1 batches built directly from canonical raw bit-vector data.
+  All structures and buffers share `GpuContext` provenance, dynamic kernels
+  preserve unused capacity, and producer→query→consumer WGPU tests perform no
+  intermediate host read. Fixed launches use least-area legal 2-D workgroup
+  rectangles; device-written indirect launches use a constant-time tight cover
+  inside a host-validated capacity envelope. The 65,536-group boundary launches
+  32,768×2 rather than 65,535×2, while the envelope prevents flattened `u32`
+  index wrap.
 - Added device-resident `u32` buffers and `GpuWaveletMatrix` rank launch APIs
   that accept resident positions/values and write resident results without a
   host transfer or synchronization. The existing slice-based `rank_batch`

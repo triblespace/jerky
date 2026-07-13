@@ -7,14 +7,14 @@
 - Device-resident query adapter in triblespace's `SuccinctArchive`: produce
   rank inputs and consume `DeviceU32Buffer` results in CubeCL so an entire
   frontier transition needs one final readback rather than one sync per
-  clause. Jerky's fixed and device-length/indirect resident rank launches are
-  ready; scan/compact and scheduling live in triblespace.
-- Extend the device-resident launch API to access/select/quantile; the shared
-  `GpuContext` already lets those future kernels reuse typed buffers safely
-  across several `GpuWaveletMatrix` instances on the same device.
+  clause. Jerky's fixed and device-length/indirect resident rank, access, and
+  standalone bit-vector launches are ready; scan/compact and scheduling live
+  in triblespace.
+- Extend the device-resident WaveletMatrix launch API to select/quantile; the
+  shared `GpuContext` already lets those future kernels reuse typed buffers
+  safely across several structures on the same device.
 - GPU forms for more ops/structures: `rank_range`/`intersect` on
-  `GpuWaveletMatrix`, and a batched rank/select kernel for a standalone
-  `BitVector<Rank9SelIndex>`.
+  `GpuWaveletMatrix`, and rank0/select0 on `GpuBitVector`.
 - Persistent single-workgroup kernel variant for latency-bound query chains
   under GPU contention (a single dispatch is immune to per-dispatch scheduler
   gaps; measured to win under load in prior probes).

@@ -14,9 +14,9 @@
 
 use anybytes::area::ByteArea;
 use cubecl::prelude::*;
-use jerky::bit_vector::Rank9SelIndex;
+use jerky::bit_vector::{BitVector, BitVectorData, NumBits, Rank, Rank9SelIndex, Select};
 use jerky::char_sequences::WaveletMatrix;
-use jerky::gpu::{GpuContext, GpuWaveletMatrix};
+use jerky::gpu::{GpuBitVector, GpuContext, GpuWaveletMatrix};
 
 /// A deliberately separate downstream stage: if resident rank results can be
 /// consumed here before the one final host read, the public buffer API is
@@ -29,20 +29,60 @@ fn consume_rank_kernel(ranks: &Array<u32>, consumed: &mut Array<u32>, mask: u32)
     }
 }
 
-/// Mimics a scan/compaction stage that produces control entirely on device.
-/// Dispatch is written as storage here, then used only as indirect control by
-/// the rank consumer in the following launch.
 #[cube(launch_unchecked)]
-fn produce_batch_control(
+fn consume_pair_kernel(
+    first: &Array<u32>,
+    second: &Array<u32>,
+    consumed: &mut Array<u32>,
+    mask: u32,
+) {
+    let t = ABSOLUTE_POS;
+    if t < consumed.len() {
+        consumed[t] = first[t] ^ second[t] ^ mask;
+    }
+}
+
+/// Mimics a scan/compaction stage that produces data and control entirely on
+/// device. The one control thread writes a constant-time tight 2-D cover; the
+/// remaining threads fill positions and values before a resident consumer.
+#[cube(launch_unchecked)]
+fn produce_rank_batch(
+    positions: &mut Array<u32>,
+    values: &mut Array<u32>,
     meta: &mut Array<u32>,
     dispatch: &mut Array<u32>,
     logical_len: u32,
     threads: u32,
+    max_groups_x: u32,
+    max_groups_y: u32,
+    sequence_len: u32,
+    alph_size: u32,
 ) {
+    let t = ABSOLUTE_POS;
+    if t < positions.len() && t < values.len() {
+        positions[t] = ((t as u32) * 43u32) % (sequence_len + 2u32);
+        values[t] = ((t as u32) * 59u32) % alph_size;
+    }
     if ABSOLUTE_POS == 0 {
         meta[0] = logical_len;
-        dispatch[0] = logical_len.div_ceil(threads);
-        dispatch[1] = 1u32;
+        let groups = logical_len.div_ceil(threads);
+        let mut x = u32::new(0);
+        let mut y = u32::new(1);
+        if groups > 0 {
+            y = groups.div_ceil(max_groups_x);
+            x = groups.div_ceil(y);
+        }
+        // `DeviceDispatch` exposes a capacity-safe envelope, not merely the
+        // raw hardware limit. The tight cover therefore cannot overflow the
+        // consumer's flattened u32 position.
+        if y <= max_groups_y {
+            dispatch[0] = x;
+            dispatch[1] = y;
+        } else {
+            // The typed envelope makes this unreachable for valid metadata.
+            dispatch[0] = 0u32;
+            dispatch[1] = 1u32;
+        }
         dispatch[2] = 1u32;
     }
 }
@@ -69,6 +109,13 @@ fn build(
         WaveletMatrix::<Rank9SelIndex>::from_iter(alph_size, ints.iter().copied(), &mut sections)
             .unwrap();
     (area, wm, ints)
+}
+
+fn build_bit_vector(seed: u64, len: usize) -> BitVector<Rank9SelIndex> {
+    let mut state = seed;
+    let data = BitVectorData::from_bits((0..len).map(|_| sm(&mut state) & 3 != 0));
+    let index = Rank9SelIndex::new(&data);
+    BitVector::new(data, index)
 }
 
 /// Checks GPU batch results against CPU per-query results for all four ops.
@@ -295,37 +342,208 @@ fn resident_rank_chains_into_device_consumer_before_one_final_read() {
 }
 
 #[test]
-fn dynamic_resident_rank_uses_device_length_and_indirect_dispatch() {
-    let (_area, wm, ints) = build(0xD1CE_BA7C, 4096, 257);
+fn resident_access_writes_caller_buffer_before_one_final_read() {
+    let (_area, wm, _ints) = build(0x0ACC_E551, 4096, 257);
+    let gpu = GpuWaveletMatrix::on_wgpu(&wm).unwrap();
+    let positions_host: Vec<u32> = (0..8193)
+        .map(|index| ((index * 37) % (wm.len() + 2)) as u32)
+        .collect();
+    let positions = gpu.upload_u32(&positions_host).unwrap();
+    let mut accessed = gpu.empty_u32(positions.len()).unwrap();
+    gpu.access_batch_into(&positions, &mut accessed).unwrap();
+
+    let mask = 0x196E_7A11u32;
+    let mut consumed = gpu.empty_u32(positions.len()).unwrap();
+    unsafe {
+        consume_rank_kernel::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            accessed.client(),
+            CubeCount::new_1d((positions.len() as u32).div_ceil(256)),
+            CubeDim::new_1d(256),
+            accessed.input_arg(),
+            consumed.output_arg(),
+            mask,
+        );
+    }
+    let actual = consumed.read();
+    let expected: Vec<_> = positions_host
+        .iter()
+        .map(|&position| {
+            wm.access(position as usize)
+                .map(|value| value as u32)
+                .unwrap_or(u32::MAX)
+                ^ mask
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn gpu_bit_vector_rank1_select1_exact_parity() {
     let context = GpuContext::on_wgpu();
-    let gpu = GpuWaveletMatrix::with_context(context.clone(), &wm).unwrap();
+    for (case, &len) in [0usize, 1, 31, 32, 33, 511, 512, 513, 4097]
+        .iter()
+        .enumerate()
+    {
+        let vector = build_bit_vector(0xB17_0000 + case as u64, len);
+        let gpu = GpuBitVector::with_context(context.clone(), &vector.data).unwrap();
+        assert_eq!(gpu.len(), vector.len());
+        assert_eq!(gpu.is_empty(), vector.len() == 0);
+        assert_eq!(gpu.num_ones(), vector.num_ones());
+
+        let mut positions = vec![0, len, len.saturating_add(1), usize::MAX];
+        positions.extend((0..257).map(|index| {
+            if len == 0 {
+                index % 3
+            } else {
+                (index * 37) % (len + 2)
+            }
+        }));
+        let expected_ranks: Vec<_> = positions
+            .iter()
+            .map(|&position| vector.rank1(position))
+            .collect();
+        assert_eq!(
+            gpu.rank1_batch(&positions).unwrap(),
+            expected_ranks,
+            "len={len}"
+        );
+
+        let ranks: Vec<_> = (0..vector.num_ones().saturating_add(3)).collect();
+        let expected_selects: Vec<_> = ranks.iter().map(|&rank| vector.select1(rank)).collect();
+        assert_eq!(
+            gpu.select1_batch(&ranks).unwrap(),
+            expected_selects,
+            "len={len}"
+        );
+    }
+}
+
+#[test]
+fn dynamic_access_and_bit_select_compose_from_device_length() {
+    let (_area, wm, _ints) = build(0xD1A0_ACCE, 4096, 257);
+    let vector = build_bit_vector(0x0D1A_0B17, wm.len());
+    let context = GpuContext::on_wgpu();
+    let gpu_wm = GpuWaveletMatrix::with_context(context.clone(), &wm).unwrap();
+    let gpu_bits = GpuBitVector::with_context(context.clone(), &vector.data).unwrap();
     let capacity = 8193usize;
     let logical_len = 5003usize;
-    let positions_host: Vec<u32> = (0..capacity)
-        .map(|i| ((i * 43) % (wm.len() + 2)) as u32)
-        .collect();
-    let values_host: Vec<u32> = (0..capacity)
-        .map(|i| ints[(i * 59) % ints.len()] as u32)
-        .collect();
-    let poison = 0xC0DE_CAFEu32;
-    let mask = 0x5A5A_A5A5u32;
+    let access_poison = 0xA11C_E551u32;
+    let select_poison = 0x5E1E_C701u32;
+    let mask = 0xC011_AB1Eu32;
 
-    let positions = context.upload_u32(&positions_host).unwrap();
-    let values = context.upload_u32(&values_host).unwrap();
-    let mut ranks = context.upload_u32(&vec![poison; capacity]).unwrap();
+    let mut positions = context.empty_u32(capacity).unwrap();
+    let mut values = context.empty_u32(capacity).unwrap();
+    let mut accessed = context.upload_u32(&vec![access_poison; capacity]).unwrap();
+    let mut ranks = context.upload_u32(&vec![0xBA7C_0001; capacity]).unwrap();
+    let mut selected = context.upload_u32(&vec![select_poison; capacity]).unwrap();
     let mut meta = context.batch_meta(0, capacity).unwrap();
     let cube_dim = CubeDim::new_1d(64);
     let mut dispatch = context.batch_dispatch(0, capacity, cube_dim).unwrap();
-
+    let max_groups_x = dispatch.max_groups_x();
+    let max_groups_y = dispatch.max_groups_y();
     unsafe {
-        produce_batch_control::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+        produce_rank_batch::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
             context.client(),
-            CubeCount::new_single(),
-            CubeDim::new_single(),
+            CubeCount::new_1d((capacity as u32).div_ceil(256)),
+            CubeDim::new_1d(256),
+            positions.output_arg(),
+            values.output_arg(),
             meta.output_arg(),
             dispatch.output_arg(),
             logical_len as u32,
             cube_dim.num_elems(),
+            max_groups_x,
+            max_groups_y,
+            wm.len() as u32,
+            wm.alph_size() as u32,
+        );
+    }
+    gpu_wm
+        .access_batch_into_dynamic(&positions, &mut accessed, &meta, &dispatch)
+        .unwrap();
+    gpu_bits
+        .rank1_batch_into_dynamic(&positions, &mut ranks, &meta, &dispatch)
+        .unwrap();
+    gpu_bits
+        .select1_batch_into_dynamic(&ranks, &mut selected, &meta, &dispatch)
+        .unwrap();
+
+    let mut consumed = context.empty_u32(capacity).unwrap();
+    unsafe {
+        consume_pair_kernel::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            context.client(),
+            CubeCount::new_1d((capacity as u32).div_ceil(256)),
+            CubeDim::new_1d(256),
+            accessed.input_arg(),
+            selected.input_arg(),
+            consumed.output_arg(),
+            mask,
+        );
+    }
+    let actual = consumed.read();
+    let expected: Vec<_> = (0..capacity)
+        .map(|index| {
+            if index < logical_len {
+                let position = (index * 43) % (wm.len() + 2);
+                let access = wm
+                    .access(position)
+                    .map(|value| value as u32)
+                    .unwrap_or(u32::MAX);
+                let rank = vector.rank1(position).map(|rank| rank as u32);
+                let selected = rank
+                    .and_then(|rank| vector.select1(rank as usize))
+                    .map(|position| position as u32)
+                    .unwrap_or(u32::MAX);
+                access ^ selected ^ mask
+            } else {
+                access_poison ^ select_poison ^ mask
+            }
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn dynamic_resident_rank_uses_device_length_and_indirect_dispatch() {
+    let (_area, wm, _ints) = build(0xD1CE_BA7C, 4096, 257);
+    let context = GpuContext::on_wgpu();
+    let gpu = GpuWaveletMatrix::with_context(context.clone(), &wm).unwrap();
+    // One thread per workgroup makes 65,536 logical elements cross the WGPU
+    // X limit by exactly one group. The tight rectangle is 32,768 x 2, not
+    // the old 65,535 x 2 over-dispatch.
+    let capacity = 65_537usize;
+    let logical_len = 65_536usize;
+    let poison = 0xC0DE_CAFEu32;
+    let mask = 0x5A5A_A5A5u32;
+
+    let mut positions = context.empty_u32(capacity).unwrap();
+    let mut values = context.empty_u32(capacity).unwrap();
+    let mut ranks = context.upload_u32(&vec![poison; capacity]).unwrap();
+    let mut meta = context.batch_meta(0, capacity).unwrap();
+    let cube_dim = CubeDim::new_1d(1);
+    // This same record is storage in the producer and INDIRECT in rank. If its
+    // backing allocation ever regresses from persistent/exclusive to CubeCL's
+    // pooled small-buffer path, WGPU rejects the incompatible whole-buffer
+    // usages and this test fails before parity is checked.
+    let mut dispatch = context.batch_dispatch(0, capacity, cube_dim).unwrap();
+    let max_groups_x = dispatch.max_groups_x();
+    let max_groups_y = dispatch.max_groups_y();
+
+    unsafe {
+        produce_rank_batch::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            context.client(),
+            CubeCount::new_1d((capacity as u32).div_ceil(256)),
+            CubeDim::new_1d(256),
+            positions.output_arg(),
+            values.output_arg(),
+            meta.output_arg(),
+            dispatch.output_arg(),
+            logical_len as u32,
+            cube_dim.num_elems(),
+            max_groups_x,
+            max_groups_y,
+            wm.len() as u32,
+            wm.alph_size() as u32,
         );
     }
     gpu.rank_batch_into_dynamic(&positions, &values, &mut ranks, &meta, &dispatch)
@@ -345,13 +563,12 @@ fn dynamic_resident_rank_uses_device_length_and_indirect_dispatch() {
         );
     }
     let actual = consumed.read();
-    let expected: Vec<u32> = positions_host
-        .iter()
-        .zip(&values_host)
-        .enumerate()
-        .map(|(index, (&position, &value))| {
+    let expected: Vec<u32> = (0..capacity)
+        .map(|index| {
             let rank = if index < logical_len {
-                wm.rank(position as usize, value as usize)
+                let position = (index * 43) % (wm.len() + 2);
+                let value = (index * 59) % wm.alph_size();
+                wm.rank(position, value)
                     .map(|rank| rank as u32)
                     .unwrap_or(u32::MAX)
             } else {
@@ -398,6 +615,19 @@ fn resident_rank_rejects_foreign_and_mismatched_buffers() {
     );
     assert!(first
         .rank_batch_into(&positions, &values, &mut foreign_output)
+        .is_err());
+    assert!(first
+        .access_batch_into(&positions, &mut foreign_output)
+        .is_err());
+
+    let bit_vector = build_bit_vector(0xB17_F0AE, 128);
+    let gpu_bits = GpuBitVector::with_context(shared.clone(), &bit_vector.data).unwrap();
+    gpu_bits.rank1_batch_into(&positions, &mut output).unwrap();
+    assert!(gpu_bits
+        .rank1_batch_into(&positions, &mut foreign_output)
+        .is_err());
+    assert!(gpu_bits
+        .select1_batch_into(&values, &mut foreign_output)
         .is_err());
     assert!(shared.batch_meta(4, 3).is_err());
     assert!(shared.batch_dispatch(0, 3, CubeDim::new_1d(0)).is_err());
