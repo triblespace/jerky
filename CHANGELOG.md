@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added `GpuContext::static_batch_dispatch` and its typed `StaticDispatch`
+  result for allocation-free direct launches when the logical batch length is
+  host-known. Static and device-written dispatches now share one checked
+  geometry planner covering logical/capacity bounds, actual device limits,
+  two-dimensional envelopes, zero lengths, and flattened `u32` positions.
 - Extended the experimental GPU pipeline seam with caller-owned fixed and
   device-length/indirect resident WaveletMatrix access, plus `GpuBitVector`
   rank1/select1 batches built directly from canonical raw bit-vector data.

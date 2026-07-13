@@ -42,6 +42,14 @@ fn consume_pair_kernel(
     }
 }
 
+#[cube(launch_unchecked)]
+fn write_static_batch(output: &mut Array<u32>, logical_len: u32) {
+    let t = ABSOLUTE_POS;
+    if t < logical_len as usize {
+        output[t] = t as u32;
+    }
+}
+
 /// Mimics a scan/compaction stage that produces data and control entirely on
 /// device. The one control thread writes a constant-time tight 2-D cover; the
 /// remaining threads fill positions and values before a resident consumer.
@@ -501,6 +509,52 @@ fn dynamic_access_and_bit_select_compose_from_device_length() {
         })
         .collect();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn host_static_dispatch_is_checked_and_preserves_spare_capacity() {
+    let context = GpuContext::on_wgpu();
+    let cube_dim = CubeDim::new_1d(1);
+
+    for capacity in [0, 3] {
+        let empty = context
+            .static_batch_dispatch(0, capacity, cube_dim)
+            .unwrap();
+        assert!(matches!(empty.cube_count(), CubeCount::Static(0, 1, 1)));
+        assert_eq!(empty.cube_dim(), cube_dim);
+    }
+    assert!(context.static_batch_dispatch(4, 3, cube_dim).is_err());
+    assert!(context
+        .static_batch_dispatch(0, 3, CubeDim::new_1d(0))
+        .is_err());
+    assert!(context
+        .static_batch_dispatch(0, usize::MAX, cube_dim)
+        .is_err());
+
+    // Cross the one-dimensional WGPU workgroup-count limit while retaining a
+    // one-element capacity tail. The direct launch must cover exactly the
+    // logical prefix without turning that spare slot into work.
+    let logical_len = 65_536usize;
+    let capacity = logical_len + 1;
+    let poison = 0xA110_CAFE;
+    let dispatch = context
+        .static_batch_dispatch(logical_len, capacity, cube_dim)
+        .unwrap();
+    assert!(matches!(dispatch.cube_count(), CubeCount::Static(_, _, 1)));
+    let mut output = context.upload_u32(&vec![poison; capacity]).unwrap();
+    unsafe {
+        write_static_batch::launch_unchecked::<cubecl::wgpu::WgpuRuntime>(
+            context.client(),
+            dispatch.cube_count(),
+            dispatch.cube_dim(),
+            output.output_arg(),
+            logical_len as u32,
+        );
+    }
+    let output = output.read();
+    assert_eq!(output[0], 0);
+    assert_eq!(output[logical_len - 1], logical_len as u32 - 1);
+    assert_eq!(output[logical_len], poison);
 }
 
 #[test]

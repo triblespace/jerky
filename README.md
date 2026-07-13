@@ -101,10 +101,12 @@ WaveletMatrix access/rank methods keep inputs and outputs on the device.
 rank1/select1. Downstream CubeCL kernels consume typed array arguments, with a
 single `DeviceU32Buffer::read` at the end of the pipeline; slice-based methods
 remain the host convenience path. Structures built from clones of one
-`GpuContext` safely share resident buffers. For device-compacted frontiers,
-`DeviceBatchMeta` stores `[logical_len, capacity]` separately from the
-persistent/exclusive `DeviceDispatch`; dynamic kernels use tight 2-D indirect
-dispatch while still guarding every probe by the device logical length.
+`GpuContext` safely share resident buffers. Host-known lengths use
+`GpuContext::static_batch_dispatch` for a checked direct launch with no device
+allocation or upload. For device-compacted frontiers, `DeviceBatchMeta` stores
+`[logical_len, capacity]` separately from the persistent/exclusive
+`DeviceDispatch`; dynamic kernels use tight 2-D indirect dispatch while still
+guarding every probe by the device logical length.
 
 ```console
 cargo run --release --features gpu --example gpu_bench

@@ -44,6 +44,10 @@
 //! single-probe call sites — that reintroduces a sync per query and is orders of
 //! magnitude slower than the CPU path. Construct all participating structures
 //! from clones of one [`GpuContext`].
+//! Host-known batch lengths can use
+//! [`GpuContext::static_batch_dispatch`] for a checked, allocation-free direct
+//! launch. The returned [`StaticDispatch`] carries a static workgroup count and
+//! its matching shape within a validated capacity envelope.
 //! Device-compacted frontiers use separate [`DeviceBatchMeta`] and
 //! [`DeviceDispatch`] records with the `*_into_dynamic` launch variants, so
 //! capacity-sized buffers never turn spare slots into queries.
@@ -703,6 +707,34 @@ impl<R: Runtime> GpuContext<R> {
         })
     }
 
+    /// Plans a direct static dispatch for a host-known batch length.
+    ///
+    /// The returned [`StaticDispatch`] owns no device allocation and performs
+    /// no upload. Its workgroup count tightly covers `logical_len` inside a
+    /// host-validated `capacity` envelope using the device's actual limits.
+    /// A two-dimensional cover may contain spare workgroups, so the launched
+    /// kernel must still guard its flattened position by `logical_len`.
+    /// Use [`Self::batch_dispatch`] instead when a producer kernel determines
+    /// the logical length and must rewrite an indirect-dispatch record.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned for invalid lengths, an unsupported cube shape, or
+    /// a capacity whose two-dimensional dispatch exceeds either the device
+    /// limit or CubeCL's flattened `u32` position space.
+    pub fn static_batch_dispatch(
+        &self,
+        logical_len: usize,
+        capacity: usize,
+        cube_dim: CubeDim,
+    ) -> Result<StaticDispatch> {
+        let geometry = batch_dispatch_geometry(&self.client, logical_len, capacity, cube_dim)?;
+        Ok(StaticDispatch {
+            cube_count: CubeCount::new_2d(geometry.x, geometry.y),
+            cube_dim: geometry.cube_dim,
+        })
+    }
+
     /// Creates an exclusive persistent indirect-dispatch record for a
     /// device-produced batch.
     ///
@@ -729,26 +761,8 @@ impl<R: Runtime> GpuContext<R> {
         capacity: usize,
         cube_dim: CubeDim,
     ) -> Result<DeviceDispatch<R>> {
-        validate_logical_capacity(logical_len, capacity)?;
-        let units = validate_cube_dim(&self.client, cube_dim)?;
-        let max_groups = (capacity as u32).div_ceil(units);
-        let max_cube_count = self.client.properties().hardware.max_cube_count;
-        let (max_x, max_y) =
-            dispatch_rectangle(max_groups, max_cube_count.0, max_cube_count.1).ok_or_else(|| {
-                Error::invalid_argument(format!(
-                    "batch capacity {capacity} needs {max_groups} workgroups, device 2-D limit is {}x{}",
-                    max_cube_count.0, max_cube_count.1
-                ))
-            })?;
-        if max_x as u64 * max_y as u64 * units as u64 > u32::MAX as u64 + 1 {
-            return Err(Error::invalid_argument(
-                "batch dispatch would wrap CubeCL's flattened u32 position",
-            ));
-        }
-        let groups = (logical_len as u32).div_ceil(units);
-        let (x, y) = tight_dispatch_rectangle(groups, max_x, max_y)
-            .expect("logical dispatch fits because capacity dispatch fits");
-        let words = [x, y, 1];
+        let geometry = batch_dispatch_geometry(&self.client, logical_len, capacity, cube_dim)?;
+        let words = [geometry.x, geometry.y, 1];
         let handle = self
             .client
             .memory_persistent_allocation((), |()| {
@@ -759,13 +773,13 @@ impl<R: Runtime> GpuContext<R> {
             context: self.clone(),
             handle,
             capacity,
-            cube_dim,
+            cube_dim: geometry.cube_dim,
             // Publish the capacity rectangle, rather than the raw hardware
             // limits, as the producer's planning envelope. Any rectangle
             // inside it is both device-legal and unable to exceed the
             // host-validated flattened-index budget.
-            max_groups_x: max_x,
-            max_groups_y: max_y,
+            max_groups_x: geometry.max_x,
+            max_groups_y: geometry.max_y,
         })
     }
 
@@ -829,6 +843,33 @@ impl<R: Runtime> GpuContext<R> {
             )));
         }
         Ok(capacity)
+    }
+}
+
+/// A checked direct launch for a host-known logical batch.
+///
+/// Unlike [`DeviceDispatch`], this value is entirely host-side: it contains a
+/// static CubeCL workgroup count and its matching workgroup shape, owns no
+/// device buffer, and performs no allocation or upload. Construct it through
+/// [`GpuContext::static_batch_dispatch`] so the count remains inside both the
+/// caller's capacity envelope and the device's geometry limits. The consuming
+/// kernel remains responsible for ignoring flattened positions at or beyond
+/// its host-known logical length.
+#[derive(Clone, Debug)]
+pub struct StaticDispatch {
+    cube_count: CubeCount,
+    cube_dim: CubeDim,
+}
+
+impl StaticDispatch {
+    /// Returns the checked static workgroup count.
+    pub fn cube_count(&self) -> CubeCount {
+        self.cube_count.clone()
+    }
+
+    /// Returns the workgroup shape used to plan this dispatch.
+    pub fn cube_dim(&self) -> CubeDim {
+        self.cube_dim
     }
 }
 
@@ -1977,6 +2018,55 @@ fn validate_logical_capacity(logical_len: usize, capacity: usize) -> Result<()> 
     }
 }
 
+#[derive(Clone, Copy)]
+struct BatchDispatchGeometry {
+    x: u32,
+    y: u32,
+    max_x: u32,
+    max_y: u32,
+    cube_dim: CubeDim,
+}
+
+fn batch_dispatch_geometry<R: Runtime>(
+    client: &ComputeClient<R>,
+    logical_len: usize,
+    capacity: usize,
+    cube_dim: CubeDim,
+) -> Result<BatchDispatchGeometry> {
+    validate_logical_capacity(logical_len, capacity)?;
+    let units = validate_cube_dim(client, cube_dim)?;
+    let max_groups = (capacity as u32).div_ceil(units);
+    let max_cube_count = client.properties().hardware.max_cube_count;
+    if max_cube_count.0 == 0 || max_cube_count.1 == 0 || max_cube_count.2 == 0 {
+        return Err(Error::invalid_argument(
+            "device workgroup-count dimensions must be nonzero",
+        ));
+    }
+    let (max_x, max_y) = dispatch_rectangle(max_groups, max_cube_count.0, max_cube_count.1)
+        .ok_or_else(|| {
+            Error::invalid_argument(format!(
+                "batch capacity {capacity} needs {max_groups} workgroups, device 2-D limit is {}x{}",
+                max_cube_count.0, max_cube_count.1
+            ))
+        })?;
+    if max_x as u64 * max_y as u64 * units as u64 > u32::MAX as u64 + 1 {
+        return Err(Error::invalid_argument(
+            "batch dispatch would wrap CubeCL's flattened u32 position",
+        ));
+    }
+    let groups = (logical_len as u32).div_ceil(units);
+    let (x, y) = tight_dispatch_rectangle(groups, max_x, max_y).ok_or_else(|| {
+        Error::invalid_argument("logical dispatch exceeds its validated capacity envelope")
+    })?;
+    Ok(BatchDispatchGeometry {
+        x,
+        y,
+        max_x,
+        max_y,
+        cube_dim,
+    })
+}
+
 fn validate_cube_dim<R: Runtime>(client: &ComputeClient<R>, cube_dim: CubeDim) -> Result<u32> {
     let units = cube_dim
         .x
@@ -2082,6 +2172,27 @@ mod tests {
             tight_dispatch_rectangle(65_536, MAX_GROUPS_PER_DIM, MAX_GROUPS_PER_DIM),
             Some((32_768, 2))
         );
+    }
+
+    #[test]
+    fn logical_rectangle_stays_inside_every_capacity_envelope() {
+        for hardware_x in 1u32..20 {
+            for hardware_y in 1u32..20 {
+                let hardware_area = hardware_x * hardware_y;
+                for capacity in 0..=hardware_area {
+                    let (max_x, max_y) =
+                        dispatch_rectangle(capacity, hardware_x, hardware_y).unwrap();
+                    for logical in 0..=capacity {
+                        let (x, y) = tight_dispatch_rectangle(logical, max_x, max_y).unwrap();
+                        assert!(x <= max_x && y <= max_y);
+                        assert!(x as u64 * y as u64 >= logical as u64);
+                        if logical != 0 {
+                            assert!(x as u64 * y as u64 - (logical as u64) < y as u64);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
