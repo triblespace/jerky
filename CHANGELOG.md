@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Made `WaveletMatrix::access` explicitly share one rank1 query between its
+  zero and one branches, preserving the rank0 identity while stabilizing hot
+  Rank9 code generation across unrelated downstream monomorphizations.
 - Added `GpuContext::static_batch_dispatch` and its typed `StaticDispatch`
   result for allocation-free direct launches when the logical batch length is
   host-known. Static and device-written dispatches now share one checked

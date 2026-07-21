@@ -583,11 +583,17 @@ where
         let mut val = 0;
         for layer in &self.layers {
             val <<= 1;
-            if layer.access(pos).unwrap() {
+            let bit = layer.access(pos).unwrap();
+            // Rank0(pos) is exactly pos - rank1(pos). Spell out the shared
+            // rank query so code generation cannot duplicate Rank9 work on
+            // the two access branches when unrelated monomorphizations move
+            // between codegen units.
+            let rank1 = layer.rank1(pos).unwrap();
+            if bit {
                 val |= 1;
-                pos = layer.rank1(pos).unwrap() + layer.num_zeros();
+                pos = rank1 + layer.num_zeros();
             } else {
-                pos = layer.rank0(pos).unwrap();
+                pos -= rank1;
             }
         }
         Some(val)
