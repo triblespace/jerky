@@ -135,5 +135,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // ---------------------------------------------------------------
+    // Where is the crossover? A confirm region's median size is ONE
+    // candidate, so a batch tier that only pays above some size must know
+    // that size. Same DRAM-resident structure, same total probe count,
+    // varying only how many probes are handed over per call.
+    // ---------------------------------------------------------------
+    println!();
+    println!("# batch-size sweep (n=8000000, DRAM-resident, {probes} probes total)");
+    println!(
+        "{:>12}  {:>12}  {:>12}  {:>8}",
+        "batch", "scalar ns", "batch ns", "speedup"
+    );
+
+    let n = 8_000_000usize;
+    let mut area = ByteArea::new()?;
+    let mut sections = area.sections();
+    let mut build_rng = Rng(0x1234_5678_9abc_def0);
+    let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+        alph_size,
+        (0..n).map(|_| (build_rng.next() as usize) & (alph_size - 1)),
+        &mut sections,
+    )?;
+
+    let mut rng = Rng(0x0bad_c0de_0bad_c0de);
+    let pos: Vec<usize> = (0..probes).map(|_| (rng.next() as usize) % n).collect();
+    let val: Vec<usize> = (0..probes)
+        .map(|_| (rng.next() as usize) & (alph_size - 1))
+        .collect();
+    let mut out = vec![None; probes];
+
+    let mut sink = 0usize;
+    for i in 0..probes.min(20_000) {
+        sink = sink.wrapping_add(wm.rank(pos[i], val[i]).unwrap_or(0));
+    }
+    std::hint::black_box(sink);
+
+    for batch in [1usize, 2, 4, 8, 16, 32, 64, 128, 512, 4096] {
+        let t = Instant::now();
+        for (ci, c) in pos.chunks(batch).enumerate() {
+            let lo = ci * batch;
+            for (k, &p) in c.iter().enumerate() {
+                sink = sink.wrapping_add(wm.rank(p, val[lo + k]).unwrap_or(0));
+            }
+        }
+        let scalar = t.elapsed();
+        std::hint::black_box(sink);
+
+        let t = Instant::now();
+        for (ci, c) in pos.chunks(batch).enumerate() {
+            let lo = ci * batch;
+            let hi = lo + c.len();
+            wm.rank_batch_into(&pos[lo..hi], &val[lo..hi], &mut out[lo..hi])
+                .unwrap();
+        }
+        let b = t.elapsed();
+        std::hint::black_box(&out);
+
+        let s_ns = scalar.as_nanos() as f64 / probes as f64;
+        let b_ns = b.as_nanos() as f64 / probes as f64;
+        println!(
+            "{:>12}  {:>12.1}  {:>12.1}  {:>7.2}x",
+            batch,
+            s_ns,
+            b_ns,
+            s_ns / b_ns
+        );
+    }
+
     Ok(())
 }
