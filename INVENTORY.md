@@ -10,7 +10,13 @@
   ready; the adapter lives in triblespace.
 - GPU forms for more ops/structures: `rank_range`/`intersect` on
   `GpuWaveletMatrix`, and a batched rank/select kernel for a standalone
-  `BitVector<Rank9SelIndex>`.
+  `BitVector<Rank9SelIndex>`. The CPU side now has `rank_range_batch_into`;
+  giving the GPU the same range shape would let both tiers answer a confirm
+  in one descent instead of two.
+- Batched `select`. The confirm path's remaining non-rank cost is a domain
+  binary search plus `BitVector::select1`, both of which are the same
+  dependent-miss chain the batched rank just fixed, and both are equally
+  independent across probes.
 - Persistent single-workgroup kernel variant for latency-bound query chains
   under GPU contention (a single dispatch is immune to per-dispatch scheduler
   gaps; measured to win under load in prior probes).

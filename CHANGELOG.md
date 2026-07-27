@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Added batched CPU rank entry points for `WaveletMatrix`:
+  `rank_batch_into` (mirroring `GpuWaveletMatrix`'s protocol) and
+  `rank_range_batch_into`. A single `rank` is a serial dependent chain — each
+  layer's position is the previous layer's rank *result* — so on a structure
+  larger than last-level cache the descent is `lg(sigma)` full memory round
+  trips taken back to back with the core idle between them. Probes from
+  different callers are independent, so the batched forms walk a tile of them
+  layer-major and let their misses overlap. The instruction count is
+  unchanged: the win is memory-level parallelism, not arithmetic. Measured on
+  an M4 Max (25 layers, 200k probes) at ~4x once the matrix exceeds cache,
+  and the same sweep shows why SIMD would not help — holding instructions per
+  probe constant and varying only the footprint moves ns/probe by 11.6x.
+  `rank_range_batch_into` additionally answers "how many `v` in `s..e`?" in
+  ONE descent where `rank(e) - rank(s)` costs two, which is the shape a
+  membership/confirm test actually wants. Below `MIN_BATCH` (8) probes both
+  forms run the scalar descent, so small callers lose nothing
+  (`examples/rank_profile.rs`).
 - Added zero-copy persistence and checked attachment for `Rank9SelIndex`, plus
   `WaveletMatrix` helpers that write and reattach one layer index at a time in
   MSB-to-LSB order. Checked attachment validates every rank/subrank and select
