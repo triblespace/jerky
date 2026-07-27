@@ -702,6 +702,154 @@ where
         Some((start_pos..end_pos).len())
     }
 
+    /// Answers many independent [`rank`](Self::rank) queries in one call,
+    /// writing `out[i] = self.rank(positions[i], values[i])`.
+    ///
+    /// # Why this is faster than the equivalent loop
+    ///
+    /// A single `rank` is a **serial dependent chain**: the position handed
+    /// to layer $`d+1`$ is the rank *result* from layer $`d`$, so the
+    /// descent cannot begin a load until the previous one has retired. On
+    /// a structure larger than last-level cache every one of those
+    /// $`\lg \sigma`$ steps is a full memory round trip taken back to
+    /// back, and the core sits idle through all of them — the classic
+    /// pointer-chase profile.
+    ///
+    /// Different probes, however, are entirely independent. This method
+    /// therefore walks the matrix **layer-major**: it advances a whole tile
+    /// of probes through layer 0, then the same tile through layer 1, and
+    /// so on. Within a layer the per-probe iterations share no data
+    /// dependency, so their cache misses overlap and the memory system
+    /// works on many of them at once. The win is *memory-level
+    /// parallelism*, not arithmetic — the instruction count is unchanged.
+    ///
+    /// Probes are processed in tiles so the live descent state stays
+    /// resident in L1 while a tile is in flight, rather than being
+    /// re-streamed once per layer.
+    ///
+    /// # Arguments
+    ///
+    /// - `positions`: Positions to be searched.
+    /// - `values`: Integers to be searched, one per position.
+    /// - `out`: Destination for the answers; must have the same length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the three slices do not have equal lengths.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::bit_vector::Rank9SelIndex;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use anybytes::ByteArea;
+    ///
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
+    ///
+    /// let positions = [3, 5, 7];
+    /// let values = ['a' as usize, 'c' as usize, 'b' as usize];
+    /// let mut out = [None; 3];
+    /// wm.rank_batch_into(&positions, &values, &mut out)?;
+    /// assert_eq!(out, [Some(1), Some(0), None]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn rank_batch_into(
+        &self,
+        positions: &[usize],
+        values: &[usize],
+        out: &mut [Option<usize>],
+    ) -> Result<()> {
+        if positions.len() != values.len() || positions.len() != out.len() {
+            return Err(Error::invalid_argument(format!(
+                "positions, values and out must have equal lengths, got {}, {} and {}",
+                positions.len(),
+                values.len(),
+                out.len()
+            )));
+        }
+
+        let width = self.alph_width();
+        let len = self.len();
+
+        // Tile so that the in-flight descent state (two positions per probe)
+        // stays in L1 across all `width` passes over it.
+        const TILE: usize = 512;
+        let mut start = [0usize; TILE];
+        let mut end = [0usize; TILE];
+        // Probes that neither fall out of bounds nor answer trivially, as
+        // offsets into the current tile. Compacting once up front keeps the
+        // per-layer loops free of the bounds branch.
+        let mut active = [0u32; TILE];
+
+        for (base, chunk) in positions.chunks(TILE).enumerate() {
+            let lo = base * TILE;
+            let mut n_active = 0usize;
+
+            for (i, &pos) in chunk.iter().enumerate() {
+                if len < pos {
+                    out[lo + i] = None;
+                } else if pos == 0 {
+                    out[lo + i] = Some(0);
+                } else {
+                    start[n_active] = 0;
+                    end[n_active] = pos;
+                    active[n_active] = i as u32;
+                    n_active += 1;
+                }
+            }
+
+            let start = &mut start[..n_active];
+            let end = &mut end[..n_active];
+            let active = &active[..n_active];
+
+            for (depth, layer) in self.layers.iter().enumerate() {
+                let zeros = layer.num_zeros();
+                // No iteration of this loop depends on any other, so the
+                // misses they take overlap — this is the whole point.
+                for j in 0..n_active {
+                    let val = values[lo + active[j] as usize];
+                    // NOTE(kampersanda): rank should be safe because of the
+                    // precheck, exactly as in the scalar descent.
+                    if Self::get_msb(val, depth, width) {
+                        start[j] = layer.rank1(start[j]).unwrap() + zeros;
+                        end[j] = layer.rank1(end[j]).unwrap() + zeros;
+                    } else {
+                        start[j] = layer.rank0(start[j]).unwrap();
+                        end[j] = layer.rank0(end[j]).unwrap();
+                    }
+                }
+            }
+
+            for j in 0..n_active {
+                out[lo + active[j] as usize] = Some(end[j] - start[j]);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Allocating convenience wrapper over
+    /// [`rank_batch_into`](Self::rank_batch_into).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `positions` and `values` differ in length.
+    pub fn rank_batch(&self, positions: &[usize], values: &[usize]) -> Result<Vec<Option<usize>>> {
+        let mut out = vec![None; positions.len()];
+        self.rank_batch_into(positions, values, &mut out)?;
+        Ok(out)
+    }
+
     /// Returns the occurrence position of `k`-th `val`,
     /// or [`None`] if there is no such an occurrence.
     ///
