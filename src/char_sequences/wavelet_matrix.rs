@@ -26,6 +26,25 @@ use crate::bit_vector::Select;
 use crate::serialization::Serializable;
 use crate::utils;
 
+/// Probes carried through the layers together by the batched rank entry
+/// points.
+///
+/// The batch exists to keep several independent descents in flight so their
+/// cache misses overlap, and a core can only sustain so many outstanding
+/// misses — past a few dozen there is no more parallelism to expose, while
+/// the live descent state (and the cost of setting it up) keeps growing.
+/// Sixty-four saturates the memory system while leaving the state comfortably
+/// inside L1.
+const BATCH_TILE: usize = 64;
+
+/// Probe count below which the batched rank entry points simply run the
+/// scalar descent.
+///
+/// Preparing a tile costs a compaction pass over the probes; with only a
+/// couple of them there is nothing to overlap and that preparation is the
+/// whole runtime. Measured crossover on an M4 Max is around eight probes.
+const MIN_BATCH: usize = 8;
+
 /// Time- and space-efficient data structure for a sequence of integers,
 /// supporting some queries such as ranking, selection, and intersection.
 ///
@@ -775,9 +794,18 @@ where
         let width = self.alph_width();
         let len = self.len();
 
+        // Below a handful of probes there is nothing to overlap and the
+        // tile setup is pure loss, so answer those the scalar way.
+        if positions.len() < MIN_BATCH {
+            for i in 0..positions.len() {
+                out[i] = self.rank(positions[i], values[i]);
+            }
+            return Ok(());
+        }
+
         // Tile so that the in-flight descent state (two positions per probe)
         // stays in L1 across all `width` passes over it.
-        const TILE: usize = 512;
+        const TILE: usize = BATCH_TILE;
         let mut start = [0usize; TILE];
         let mut end = [0usize; TILE];
         // Probes that neither fall out of bounds nor answer trivially, as
@@ -916,7 +944,14 @@ where
         let width = self.alph_width();
         let len = self.len();
 
-        const TILE: usize = 512;
+        if starts.len() < MIN_BATCH {
+            for i in 0..starts.len() {
+                out[i] = self.rank_range(starts[i]..ends[i], values[i]);
+            }
+            return Ok(());
+        }
+
+        const TILE: usize = BATCH_TILE;
         let mut start = [0usize; TILE];
         let mut end = [0usize; TILE];
         let mut active = [0u32; TILE];
