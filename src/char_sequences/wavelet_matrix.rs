@@ -894,14 +894,18 @@ where
     ///
     /// # Arguments
     ///
-    /// - `starts`: Inclusive range starts.
-    /// - `ends`: Exclusive range ends, one per start.
-    /// - `values`: Integers to be searched, one per range.
+    /// - `range`: The row range every query asks about.
+    /// - `values`: Integers to be searched.
     /// - `out`: Destination for the answers; must have the same length.
+    ///
+    /// One range serves the whole batch because that is the shape callers
+    /// have: a membership test narrows to a single row range once, then asks
+    /// which of many values occur in it. Carrying a per-probe range would be
+    /// two more arrays to fill with the same number.
     ///
     /// # Errors
     ///
-    /// Returns an error when the four slices do not have equal lengths.
+    /// Returns an error when `values` and `out` differ in length.
     ///
     /// # Examples
     ///
@@ -921,75 +925,66 @@ where
     ///     &mut sections,
     /// )?;
     ///
-    /// let starts = [1, 2, 4];
-    /// let ends = [4, 4, 7];
-    /// let values = ['a' as usize, 'c' as usize, 'b' as usize];
+    /// let values = ['a' as usize, 'c' as usize, 'n' as usize];
     /// let mut out = [None; 3];
-    /// wm.rank_range_batch_into(&starts, &ends, &values, &mut out)?;
-    /// assert_eq!(out, [Some(2), Some(0), None]);
+    /// wm.rank_range_batch_into(1..4, &values, &mut out)?;
+    /// assert_eq!(out, [Some(2), Some(0), Some(1)]);
+    ///
+    /// // A range past the end is out of bounds for every value.
+    /// wm.rank_range_batch_into(4..7, &values, &mut out)?;
+    /// assert_eq!(out, [None, None, None]);
     /// # Ok(())
     /// # }
     /// ```
     pub fn rank_range_batch_into(
         &self,
-        starts: &[usize],
-        ends: &[usize],
+        range: Range<usize>,
         values: &[usize],
         out: &mut [Option<usize>],
     ) -> Result<()> {
-        if starts.len() != ends.len() || starts.len() != values.len() || starts.len() != out.len() {
+        if values.len() != out.len() {
             return Err(Error::invalid_argument(format!(
-                "starts, ends, values and out must have equal lengths, got {}, {}, {} and {}",
-                starts.len(),
-                ends.len(),
+                "values and out must have equal lengths, got {} and {}",
                 values.len(),
                 out.len()
             )));
         }
 
-        let width = self.alph_width();
-        let len = self.len();
+        // Both degenerate cases are range-only, so they settle the whole
+        // batch at once rather than per probe.
+        if range.is_empty() {
+            out.fill(Some(0));
+            return Ok(());
+        }
+        if self.len() < range.end {
+            out.fill(None);
+            return Ok(());
+        }
 
-        if starts.len() < MIN_BATCH {
-            for i in 0..starts.len() {
-                out[i] = self.rank_range(starts[i]..ends[i], values[i]);
+        if values.len() < MIN_BATCH {
+            for i in 0..values.len() {
+                out[i] = self.rank_range(range.clone(), values[i]);
             }
             return Ok(());
         }
 
+        let width = self.alph_width();
         const TILE: usize = BATCH_TILE;
         let mut start = [0usize; TILE];
         let mut end = [0usize; TILE];
-        let mut active = [0u32; TILE];
 
-        for (base, chunk) in starts.chunks(TILE).enumerate() {
+        for (base, chunk) in values.chunks(TILE).enumerate() {
             let lo = base * TILE;
-            let mut n_active = 0usize;
-
-            for (i, &s) in chunk.iter().enumerate() {
-                let e = ends[lo + i];
-                if s >= e {
-                    // Matches `rank_range`: an empty range answers zero
-                    // before the bounds check.
-                    out[lo + i] = Some(0);
-                } else if len < e {
-                    out[lo + i] = None;
-                } else {
-                    start[n_active] = s;
-                    end[n_active] = e;
-                    active[n_active] = i as u32;
-                    n_active += 1;
-                }
-            }
-
-            let start = &mut start[..n_active];
-            let end = &mut end[..n_active];
-            let active = &active[..n_active];
+            let n = chunk.len();
+            start[..n].fill(range.start);
+            end[..n].fill(range.end);
 
             for (depth, layer) in self.layers.iter().enumerate() {
                 let zeros = layer.num_zeros();
-                for j in 0..n_active {
-                    let val = values[lo + active[j] as usize];
+                // No iteration of this loop depends on any other, so the
+                // misses they take overlap — this is the whole point.
+                for j in 0..n {
+                    let val = chunk[j];
                     // NOTE(kampersanda): rank should be safe because of the
                     // precheck, exactly as in the scalar descent.
                     if Self::get_msb(val, depth, width) {
@@ -1002,8 +997,8 @@ where
                 }
             }
 
-            for j in 0..n_active {
-                out[lo + active[j] as usize] = Some(end[j] - start[j]);
+            for j in 0..n {
+                out[lo + j] = Some(end[j] - start[j]);
             }
         }
 
@@ -1715,21 +1710,22 @@ mod test {
                 );
             }
 
-            let starts: Vec<usize> = (0..probes)
-                .map(|_| sm(&mut st) as usize % (len + 2))
-                .collect();
-            let ends: Vec<usize> = (0..probes)
-                .map(|_| sm(&mut st) as usize % (len + 2))
-                .collect();
-            let mut out = vec![None; probes];
-            wm.rank_range_batch_into(&starts, &ends, &values, &mut out)
-                .unwrap();
-            for i in 0..probes {
-                assert_eq!(
-                    out[i],
-                    wm.rank_range(starts[i]..ends[i], values[i]),
-                    "rank_range_batch_into len={len} alph_size={alph_size} i={i}"
-                );
+            // Several ranges, including empty and out-of-bounds ones, each
+            // against the whole value batch.
+            for _ in 0..8 {
+                let a = sm(&mut st) as usize % (len + 2);
+                let b = sm(&mut st) as usize % (len + 2);
+                let range = a..b;
+                let mut out = vec![None; probes];
+                wm.rank_range_batch_into(range.clone(), &values, &mut out)
+                    .unwrap();
+                for i in 0..probes {
+                    assert_eq!(
+                        out[i],
+                        wm.rank_range(range.clone(), values[i]),
+                        "rank_range_batch_into alph_size={alph_size} range={range:?} i={i}"
+                    );
+                }
             }
         }
     }
@@ -1742,9 +1738,7 @@ mod test {
         let mut out = [None; 2];
         assert!(wm.rank_batch_into(&[0, 1], &[0], &mut out).is_err());
         assert!(wm.rank_batch_into(&[0, 1], &[0, 1], &mut out[..1]).is_err());
-        assert!(wm
-            .rank_range_batch_into(&[0, 1], &[1, 2], &[0], &mut out)
-            .is_err());
+        assert!(wm.rank_range_batch_into(0..2, &[0], &mut out).is_err());
     }
 
     /// Asserts that `merged` is exactly the matrix `reference` built from
