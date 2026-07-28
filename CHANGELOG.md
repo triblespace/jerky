@@ -1,6 +1,34 @@
 # Changelog
 
 ## Unreleased
+- Made `WaveletMatrix::access` explicitly share one rank1 query between its
+  zero and one branches, preserving the rank0 identity while stabilizing hot
+  Rank9 code generation across unrelated downstream monomorphizations.
+- Added `GpuContext::static_batch_dispatch` and its typed `StaticDispatch`
+  result for allocation-free direct launches when the logical batch length is
+  host-known. Static and device-written dispatches now share one checked
+  geometry planner covering logical/capacity bounds, actual device limits,
+  two-dimensional envelopes, zero lengths, and flattened `u32` positions.
+- Extended the experimental GPU pipeline seam with caller-owned fixed and
+  device-length/indirect resident WaveletMatrix access, plus `GpuBitVector`
+  rank1/select1 batches built directly from canonical raw bit-vector data.
+  All structures and buffers share `GpuContext` provenance, dynamic kernels
+  preserve unused capacity, and producer→query→consumer WGPU tests perform no
+  intermediate host read. Fixed launches use least-area legal 2-D workgroup
+  rectangles; device-written indirect launches use a constant-time tight cover
+  inside a host-validated capacity envelope. The 65,536-group boundary launches
+  32,768×2 rather than 65,535×2, while the envelope prevents flattened `u32`
+  index wrap.
+- Added device-resident `u32` buffers and `GpuWaveletMatrix` rank launch APIs
+  that accept resident positions/values and write resident results without a
+  host transfer or synchronization. The existing slice-based `rank_batch`
+  remains the convenient upload/launch/readback path, while CubeCL query
+  pipelines can now chain kernels and read back only their final output. A
+  cloneable `GpuContext` safely shares typed buffers across multiple matrices
+  while rejecting buffers from unrelated client domains. Dynamic resident
+  batches use separate ordinary `[logical_len, capacity]` metadata and an
+  exclusive persistent indirect-dispatch record; rank guards on the
+  device-produced logical length and never probes unused capacity slots.
 - Added zero-copy persistence and checked attachment for `Rank9SelIndex`, plus
   `WaveletMatrix` helpers that write and reattach one layer index at a time in
   MSB-to-LSB order. Checked attachment validates every rank/subrank and select
