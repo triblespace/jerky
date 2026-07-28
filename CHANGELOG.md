@@ -14,10 +14,11 @@
   and the same sweep shows why SIMD would not help — holding instructions per
   probe constant and varying only the footprint moves ns/probe by 11.6x.
   `rank_range_batch_into` additionally answers "how many `v` in `s..e`?" in
-  ONE descent where `rank(e) - rank(s)` costs two, which is the shape a
-  membership/confirm test actually wants. Below `MIN_BATCH` (8) probes both
-  forms run the scalar descent, so small callers lose nothing
-  (`examples/rank_profile.rs`).
+  ONE descent where `rank(e) - rank(s)` costs two, and takes the range once
+  for the whole batch — which is the shape a membership/confirm test actually
+  wants, since it narrows to a row range once and then asks which of many
+  values occur in it. Below `MIN_BATCH` (8) probes both forms run the scalar
+  descent, so small callers lose nothing (`examples/rank_profile.rs`).
 - Added zero-copy persistence and checked attachment for `Rank9SelIndex`, plus
   `WaveletMatrix` helpers that write and reattach one layer index at a time in
   MSB-to-LSB order. Checked attachment validates every rank/subrank and select
