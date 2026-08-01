@@ -5,7 +5,7 @@
 //! order; each output line is one raw sample in nanoseconds per probe.
 //!
 //! Run:
-//! `cargo run --release --example rank_range_batch_profile -- [n] [alphabet_bits] [probes] [batch] [span] [samples]`
+//! `cargo run --release --example rank_range_batch_profile -- [n] [alphabet_bits] [probes] [batch] [span] [samples] [random|sorted-distinct]`
 
 use std::time::Instant;
 
@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batch = arg(&mut args, "batch", 64);
     let span = arg(&mut args, "span", 4_096);
     let samples = arg(&mut args, "samples", 9);
+    let order = args.next().unwrap_or_else(|| "random".to_owned());
 
     assert!(n > 0, "n must be nonzero");
     assert!(alphabet_bits < usize::BITS as usize);
@@ -64,6 +65,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(span > 0 && span <= n, "span must be in 1..=n");
 
     let alphabet_size = 1usize << alphabet_bits;
+    assert!(
+        order == "random" || order == "sorted-distinct",
+        "order must be random or sorted-distinct"
+    );
+    if order == "sorted-distinct" {
+        assert!(
+            probes <= alphabet_size,
+            "sorted-distinct needs probes <= alphabet size"
+        );
+    }
     let mut area = ByteArea::new()?;
     let mut sections = area.sections();
     let mut build_rng = Rng(0x1234_5678_9abc_def0);
@@ -74,20 +85,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let num_batches = probes.div_ceil(batch);
-    let mut query_rng = Rng(0x0bad_c0de_0bad_c0de);
-    let values: Vec<usize> = (0..probes)
-        .map(|_| (query_rng.next() as usize) & (alphabet_size - 1))
-        .collect();
+    let values: Vec<usize> = if order == "random" {
+        let mut value_rng = Rng(0x0bad_c0de_0bad_c0de);
+        (0..probes)
+            .map(|_| (value_rng.next() as usize) & (alphabet_size - 1))
+            .collect()
+    } else {
+        (0..probes)
+            .map(|i| ((i as u128 * alphabet_size as u128) / probes as u128) as usize)
+            .collect()
+    };
+    let mut range_rng = Rng(0xd1ce_cafe_51de_5eed);
     let ranges: Vec<(usize, usize)> = (0..num_batches)
         .map(|_| {
-            let start = (query_rng.next() as usize) % (n - span + 1);
+            let start = (range_rng.next() as usize) % (n - span + 1);
             (start, start + span)
         })
         .collect();
     let mut out = vec![None; probes];
 
     println!(
-        "# n={n} alphabet_bits={alphabet_bits} probes={probes} batch={batch} span={span} samples={samples} layers={}",
+        "# n={n} alphabet_bits={alphabet_bits} probes={probes} batch={batch} span={span} samples={samples} order={order} layers={}",
         wm.alph_width()
     );
 
