@@ -983,21 +983,34 @@ where
                 let zeros = layer.num_zeros();
                 // No iteration of this loop depends on any other, so the
                 // misses they take overlap — this is the whole point.
-                for j in 0..n {
-                    let val = chunk[j];
-                    let start_pos = start[j];
-                    let end_pos = end[j];
-                    // NOTE(kampersanda): rank should be safe because of the
-                    // precheck, exactly as in the scalar descent.
-                    let start_rank1 = layer.rank1(start_pos).unwrap();
-                    let end_rank1 = layer.rank1(end_pos).unwrap();
-                    if Self::get_msb(val, depth, width) {
-                        start[j] = start_rank1 + zeros;
-                        end[j] = end_rank1 + zeros;
-                    } else {
-                        start[j] = start_pos - start_rank1;
-                        end[j] = end_pos - end_rank1;
-                    }
+                macro_rules! advance {
+                    ($j:expr) => {{
+                        let j = $j;
+                        let val = chunk[j];
+                        let start_pos = start[j];
+                        let end_pos = end[j];
+                        // NOTE(kampersanda): rank should be safe because of
+                        // the precheck, exactly as in the scalar descent.
+                        let start_rank1 = layer.rank1(start_pos).unwrap();
+                        let end_rank1 = layer.rank1(end_pos).unwrap();
+                        if Self::get_msb(val, depth, width) {
+                            start[j] = start_rank1 + zeros;
+                            end[j] = end_rank1 + zeros;
+                        } else {
+                            start[j] = start_pos - start_rank1;
+                            end[j] = end_pos - end_rank1;
+                        }
+                    }};
+                }
+
+                let mut j = 0;
+                while j + 1 < n {
+                    advance!(j);
+                    advance!(j + 1);
+                    j += 2;
+                }
+                if j < n {
+                    advance!(j);
                 }
             }
 
