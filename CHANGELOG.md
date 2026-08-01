@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added layer-major CPU `WaveletMatrix::rank_batch`, `rank_batch_into`, and
+  `rank_range_batch_into` APIs. Independent probes now overlap Rank9 memory
+  misses, shared-range queries use one two-endpoint descent instead of two
+  separate ranks, batches below eight probes retain the scalar path, and
+  Rank9 data/directory loads are scheduled to overlap. Randomized parity tests
+  cover scalar equivalence and boundary cases.
 - Made `WaveletMatrix::access` explicitly share one rank1 query between its
   zero and one branches, preserving the rank0 identity while stabilizing hot
   Rank9 code generation across unrelated downstream monomorphizations.
