@@ -1683,7 +1683,7 @@ mod test {
             (64, 5),
             (1000, 941), // non-power-of-two alphabet
             (4096, 65536),
-            (5000, 17), // spans several 512-probe tiles
+            (5000, 17), // spans many batch tiles
         ] {
             seed += 1;
             let ints = random_ints(seed, len, alph_size);
