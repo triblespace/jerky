@@ -13,6 +13,20 @@ const BLOCK_LEN: usize = 8;
 const SELECT_ONES_PER_HINT: usize = 64 * BLOCK_LEN * 2;
 const SELECT_ZEROS_PER_HINT: usize = SELECT_ONES_PER_HINT;
 
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn prefetch_l1<T>(address: *const T) {
+    // SAFETY: callers pass an address obtained from a live slice element.
+    // `prfm` is only a cache hint and does not change program semantics.
+    unsafe {
+        core::arch::asm!(
+            "prfm pldl1keep, [{address}]",
+            address = in(reg) address,
+            options(readonly, nostack, preserves_flags)
+        );
+    }
+}
+
 /// The index implementation separated from the bit vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rank9SelIndex<const SELECT1: bool = true, const SELECT0: bool = true> {
@@ -253,6 +267,10 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
             return Some(self.num_ones());
         }
         let (sub_bpos, sub_left) = (pos / 64, pos % 64);
+        #[cfg(target_arch = "aarch64")]
+        if let Some(word) = data.words().get(sub_bpos) {
+            prefetch_l1(word);
+        }
         let mut r = self.sub_block_rank(sub_bpos);
         if sub_left != 0 {
             r += broadword::popcount(data.words()[sub_bpos] << (64 - sub_left));
