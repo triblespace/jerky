@@ -268,8 +268,10 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
         }
         let (sub_bpos, sub_left) = (pos / 64, pos % 64);
         #[cfg(target_arch = "aarch64")]
-        if let Some(word) = data.words().get(sub_bpos) {
-            prefetch_l1(word);
+        if sub_left != 0 {
+            if let Some(word) = data.words().get(sub_bpos) {
+                prefetch_l1(word);
+            }
         }
         let mut r = self.sub_block_rank(sub_bpos);
         if sub_left != 0 {
