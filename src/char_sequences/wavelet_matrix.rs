@@ -26,6 +26,25 @@ use crate::bit_vector::Select;
 use crate::serialization::Serializable;
 use crate::utils;
 
+/// Probes carried through the layers together by the batched rank entry
+/// points.
+///
+/// The batch exists to keep several independent descents in flight so their
+/// cache misses overlap, and a core can only sustain so many outstanding
+/// misses — past a few dozen there is no more parallelism to expose, while
+/// the live descent state (and the cost of setting it up) keeps growing.
+/// Sixty-four saturates the memory system while leaving the state comfortably
+/// inside L1.
+const BATCH_TILE: usize = 64;
+
+/// Probe count below which the batched rank entry points simply run the
+/// scalar descent.
+///
+/// Preparing a tile costs a compaction pass over the probes; with only a
+/// couple of them there is nothing to overlap and that preparation is the
+/// whole runtime. Measured crossover on an M4 Max is around eight probes.
+const MIN_BATCH: usize = 8;
+
 /// Time- and space-efficient data structure for a sequence of integers,
 /// supporting some queries such as ranking, selection, and intersection.
 ///
@@ -702,6 +721,290 @@ where
         Some((start_pos..end_pos).len())
     }
 
+    /// Answers many independent [`rank`](Self::rank) queries in one call,
+    /// writing `out[i] = self.rank(positions[i], values[i])`.
+    ///
+    /// # Why this is faster than the equivalent loop
+    ///
+    /// A single `rank` is a **serial dependent chain**: the position handed
+    /// to layer $`d+1`$ is the rank *result* from layer $`d`$, so the
+    /// descent cannot begin a load until the previous one has retired. On
+    /// a structure larger than last-level cache every one of those
+    /// $`\lg \sigma`$ steps is a full memory round trip taken back to
+    /// back, and the core sits idle through all of them — the classic
+    /// pointer-chase profile.
+    ///
+    /// Different probes, however, are entirely independent. This method
+    /// therefore walks the matrix **layer-major**: it advances a whole tile
+    /// of probes through layer 0, then the same tile through layer 1, and
+    /// so on. Within a layer the per-probe iterations share no data
+    /// dependency, so their cache misses overlap and the memory system
+    /// works on many of them at once. The win is *memory-level
+    /// parallelism*, not arithmetic — the instruction count is unchanged.
+    ///
+    /// Probes are processed in tiles so the live descent state stays
+    /// resident in L1 while a tile is in flight, rather than being
+    /// re-streamed once per layer.
+    ///
+    /// # Arguments
+    ///
+    /// - `positions`: Positions to be searched.
+    /// - `values`: Integers to be searched, one per position.
+    /// - `out`: Destination for the answers; must have the same length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the three slices do not have equal lengths.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::bit_vector::Rank9SelIndex;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use anybytes::ByteArea;
+    ///
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
+    ///
+    /// let positions = [3, 5, 7];
+    /// let values = ['a' as usize, 'c' as usize, 'b' as usize];
+    /// let mut out = [None; 3];
+    /// wm.rank_batch_into(&positions, &values, &mut out)?;
+    /// assert_eq!(out, [Some(1), Some(0), None]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn rank_batch_into(
+        &self,
+        positions: &[usize],
+        values: &[usize],
+        out: &mut [Option<usize>],
+    ) -> Result<()> {
+        if positions.len() != values.len() || positions.len() != out.len() {
+            return Err(Error::invalid_argument(format!(
+                "positions, values and out must have equal lengths, got {}, {} and {}",
+                positions.len(),
+                values.len(),
+                out.len()
+            )));
+        }
+
+        let width = self.alph_width();
+        let len = self.len();
+
+        // Below a handful of probes there is nothing to overlap and the
+        // tile setup is pure loss, so answer those the scalar way.
+        if positions.len() < MIN_BATCH {
+            for i in 0..positions.len() {
+                out[i] = self.rank(positions[i], values[i]);
+            }
+            return Ok(());
+        }
+
+        // Tile so that the in-flight descent state (two positions per probe)
+        // stays in L1 across all `width` passes over it.
+        const TILE: usize = BATCH_TILE;
+        let mut start = [0usize; TILE];
+        let mut end = [0usize; TILE];
+        // Probes that neither fall out of bounds nor answer trivially, as
+        // offsets into the current tile. Compacting once up front keeps the
+        // per-layer loops free of the bounds branch.
+        let mut active = [0u32; TILE];
+
+        for (base, chunk) in positions.chunks(TILE).enumerate() {
+            let lo = base * TILE;
+            let mut n_active = 0usize;
+
+            for (i, &pos) in chunk.iter().enumerate() {
+                if len < pos {
+                    out[lo + i] = None;
+                } else if pos == 0 {
+                    out[lo + i] = Some(0);
+                } else {
+                    start[n_active] = 0;
+                    end[n_active] = pos;
+                    active[n_active] = i as u32;
+                    n_active += 1;
+                }
+            }
+
+            let start = &mut start[..n_active];
+            let end = &mut end[..n_active];
+            let active = &active[..n_active];
+
+            for (depth, layer) in self.layers.iter().enumerate() {
+                let zeros = layer.num_zeros();
+                // No iteration of this loop depends on any other, so the
+                // misses they take overlap — this is the whole point.
+                for j in 0..n_active {
+                    let val = values[lo + active[j] as usize];
+                    // NOTE(kampersanda): rank should be safe because of the
+                    // precheck, exactly as in the scalar descent.
+                    if Self::get_msb(val, depth, width) {
+                        start[j] = layer.rank1(start[j]).unwrap() + zeros;
+                        end[j] = layer.rank1(end[j]).unwrap() + zeros;
+                    } else {
+                        start[j] = layer.rank0(start[j]).unwrap();
+                        end[j] = layer.rank0(end[j]).unwrap();
+                    }
+                }
+            }
+
+            for j in 0..n_active {
+                out[lo + active[j] as usize] = Some(end[j] - start[j]);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Allocating convenience wrapper over
+    /// [`rank_batch_into`](Self::rank_batch_into).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `positions` and `values` differ in length.
+    pub fn rank_batch(&self, positions: &[usize], values: &[usize]) -> Result<Vec<Option<usize>>> {
+        let mut out = vec![None; positions.len()];
+        self.rank_batch_into(positions, values, &mut out)?;
+        Ok(out)
+    }
+
+    /// Answers many independent [`rank_range`](Self::rank_range) queries in
+    /// one call, writing
+    /// `out[i] = self.rank_range(starts[i]..ends[i], values[i])`.
+    ///
+    /// # Why prefer this over two [`rank_batch_into`](Self::rank_batch_into) probes
+    ///
+    /// Asking "how many `v` are in `s..e`?" as `rank(e, v) - rank(s, v)`
+    /// runs **two** root-to-leaf descents, each carrying its own pair of
+    /// positions, for **four** rank ops per layer. A range descent carries
+    /// `s` and `e` down together and costs **two** — the same answer for
+    /// half the memory traffic. On top of that saving this method batches
+    /// exactly as [`rank_batch_into`](Self::rank_batch_into) does, so the
+    /// remaining misses still overlap across probes.
+    ///
+    /// # Arguments
+    ///
+    /// - `range`: The row range every query asks about.
+    /// - `values`: Integers to be searched.
+    /// - `out`: Destination for the answers; must have the same length.
+    ///
+    /// One range serves the whole batch because that is the shape callers
+    /// have: a membership test narrows to a single row range once, then asks
+    /// which of many values occur in it. Carrying a per-probe range would be
+    /// two more arrays to fill with the same number.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `values` and `out` differ in length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use jerky::bit_vector::Rank9SelIndex;
+    /// use jerky::char_sequences::WaveletMatrix;
+    /// use anybytes::ByteArea;
+    ///
+    /// let text = "banana";
+    /// let alph_size = ('n' as usize) + 1;
+    /// let mut area = ByteArea::new()?;
+    /// let mut sections = area.sections();
+    /// let wm = WaveletMatrix::<Rank9SelIndex>::from_iter(
+    ///     alph_size,
+    ///     text.bytes().map(|b| b as usize),
+    ///     &mut sections,
+    /// )?;
+    ///
+    /// let values = ['a' as usize, 'c' as usize, 'n' as usize];
+    /// let mut out = [None; 3];
+    /// wm.rank_range_batch_into(1..4, &values, &mut out)?;
+    /// assert_eq!(out, [Some(2), Some(0), Some(1)]);
+    ///
+    /// // A range past the end is out of bounds for every value.
+    /// wm.rank_range_batch_into(4..7, &values, &mut out)?;
+    /// assert_eq!(out, [None, None, None]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn rank_range_batch_into(
+        &self,
+        range: Range<usize>,
+        values: &[usize],
+        out: &mut [Option<usize>],
+    ) -> Result<()> {
+        if values.len() != out.len() {
+            return Err(Error::invalid_argument(format!(
+                "values and out must have equal lengths, got {} and {}",
+                values.len(),
+                out.len()
+            )));
+        }
+
+        // Both degenerate cases are range-only, so they settle the whole
+        // batch at once rather than per probe.
+        if range.is_empty() {
+            out.fill(Some(0));
+            return Ok(());
+        }
+        if self.len() < range.end {
+            out.fill(None);
+            return Ok(());
+        }
+
+        if values.len() < MIN_BATCH {
+            for i in 0..values.len() {
+                out[i] = self.rank_range(range.clone(), values[i]);
+            }
+            return Ok(());
+        }
+
+        let width = self.alph_width();
+        const TILE: usize = BATCH_TILE;
+        let mut start = [0usize; TILE];
+        let mut end = [0usize; TILE];
+
+        for (base, chunk) in values.chunks(TILE).enumerate() {
+            let lo = base * TILE;
+            let n = chunk.len();
+            start[..n].fill(range.start);
+            end[..n].fill(range.end);
+
+            for (depth, layer) in self.layers.iter().enumerate() {
+                let zeros = layer.num_zeros();
+                // No iteration of this loop depends on any other, so the
+                // misses they take overlap — this is the whole point.
+                for j in 0..n {
+                    let val = chunk[j];
+                    // NOTE(kampersanda): rank should be safe because of the
+                    // precheck, exactly as in the scalar descent.
+                    if Self::get_msb(val, depth, width) {
+                        start[j] = layer.rank1(start[j]).unwrap() + zeros;
+                        end[j] = layer.rank1(end[j]).unwrap() + zeros;
+                    } else {
+                        start[j] = layer.rank0(start[j]).unwrap();
+                        end[j] = layer.rank0(end[j]).unwrap();
+                    }
+                }
+            }
+
+            for j in 0..n {
+                out[lo + j] = Some(end[j] - start[j]);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Returns the occurrence position of `k`-th `val`,
     /// or [`None`] if there is no such an occurrence.
     ///
@@ -1364,6 +1667,78 @@ mod test {
             let (_area, wm) = build_wm(alph_size, &ints);
             assert_eq!(wm.to_vec(), ints, "len={len} alph_size={alph_size}");
         }
+    }
+
+    /// The batched descents must agree with the scalar ones everywhere,
+    /// including the out-of-bounds and empty-range edges and the tile
+    /// boundary — a tiled layer-major walk is exactly the kind of code that
+    /// works for one tile and silently misindexes across two.
+    #[test]
+    fn batched_rank_matches_scalar_on_random_probes() {
+        let mut seed = 0xB47C_4ED0;
+        for &(len, alph_size) in &[
+            (0usize, 1usize),
+            (1, 2),
+            (7, 2),
+            (64, 5),
+            (1000, 941), // non-power-of-two alphabet
+            (4096, 65536),
+            (5000, 17), // spans several 512-probe tiles
+        ] {
+            seed += 1;
+            let ints = random_ints(seed, len, alph_size);
+            let (_area, wm) = build_wm(alph_size, &ints);
+
+            // Deliberately include `len + 1` (out of bounds) and 0 (the
+            // empty-range short circuit).
+            let mut st = seed ^ 0xFEED;
+            let probes = 1500;
+            let positions: Vec<usize> = (0..probes)
+                .map(|_| sm(&mut st) as usize % (len + 2))
+                .collect();
+            let values: Vec<usize> = (0..probes)
+                .map(|_| sm(&mut st) as usize % alph_size)
+                .collect();
+
+            let mut out = vec![None; probes];
+            wm.rank_batch_into(&positions, &values, &mut out).unwrap();
+            for i in 0..probes {
+                assert_eq!(
+                    out[i],
+                    wm.rank(positions[i], values[i]),
+                    "rank_batch_into len={len} alph_size={alph_size} i={i}"
+                );
+            }
+
+            // Several ranges, including empty and out-of-bounds ones, each
+            // against the whole value batch.
+            for _ in 0..8 {
+                let a = sm(&mut st) as usize % (len + 2);
+                let b = sm(&mut st) as usize % (len + 2);
+                let range = a..b;
+                let mut out = vec![None; probes];
+                wm.rank_range_batch_into(range.clone(), &values, &mut out)
+                    .unwrap();
+                for i in 0..probes {
+                    assert_eq!(
+                        out[i],
+                        wm.rank_range(range.clone(), values[i]),
+                        "rank_range_batch_into alph_size={alph_size} range={range:?} i={i}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Mismatched slice lengths are a caller bug, not a panic.
+    #[test]
+    fn batched_rank_rejects_mismatched_lengths() {
+        let ints = random_ints(0xC0FF_EE01, 64, 8);
+        let (_area, wm) = build_wm(8, &ints);
+        let mut out = [None; 2];
+        assert!(wm.rank_batch_into(&[0, 1], &[0], &mut out).is_err());
+        assert!(wm.rank_batch_into(&[0, 1], &[0, 1], &mut out[..1]).is_err());
+        assert!(wm.rank_range_batch_into(0..2, &[0], &mut out).is_err());
     }
 
     /// Asserts that `merged` is exactly the matrix `reference` built from

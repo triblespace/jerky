@@ -253,9 +253,18 @@ impl<const SELECT1: bool, const SELECT0: bool> Rank9SelIndex<SELECT1, SELECT0> {
             return Some(self.num_ones());
         }
         let (sub_bpos, sub_left) = (pos / 64, pos % 64);
+        // Fetch the independent data word before consulting the rank
+        // directory, so an out-of-cache word and directory line can be in
+        // flight together. The word is consumed only after the directory
+        // arithmetic, leaving useful work between its load and popcount.
+        let word = if sub_left != 0 {
+            Some(data.words()[sub_bpos])
+        } else {
+            None
+        };
         let mut r = self.sub_block_rank(sub_bpos);
-        if sub_left != 0 {
-            r += broadword::popcount(data.words()[sub_bpos] << (64 - sub_left));
+        if let Some(word) = word {
+            r += broadword::popcount(word << (64 - sub_left));
         }
         Some(r)
     }
