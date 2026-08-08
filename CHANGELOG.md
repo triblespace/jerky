@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Wavelet matrices now use the minimum code width
+  `max(1, bit_length(alphabet_size - 1))`, removing the redundant leading-zero
+  plane at power-of-two cardinalities. CPU and GPU rank/select APIs explicitly
+  treat values outside `0..alphabet_size` as absent, preventing those values
+  from aliasing low codes; raw and persisted-index attachment reject
+  noncanonical layer counts.
 - Added layer-major CPU `WaveletMatrix::rank_batch`, `rank_batch_into`, and
   `rank_range_batch_into` APIs. Independent probes now overlap Rank9 memory
   misses, shared-range queries use one two-endpoint descent instead of two

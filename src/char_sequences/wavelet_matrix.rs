@@ -157,7 +157,7 @@ impl<'a> WaveletMatrixBuilder<'a> {
         len: usize,
         writer: &mut SectionWriter<'a>,
     ) -> Result<Self> {
-        let alph_width = utils::needed_bits(alph_size);
+        let alph_width = utils::alphabet_width(alph_size);
         let mut handles = writer.reserve::<SectionHandle<u64>>(alph_width)?;
         let mut layers = Vec::with_capacity(alph_width);
         for idx in 0..alph_width {
@@ -618,8 +618,9 @@ where
         Some(val)
     }
 
-    /// Returns the number of occurrence of `val` in the range `0..pos`,
-    /// or [`None`] if `self.len() < pos`.
+    /// Returns the number of occurrences of `val` in the range `0..pos`,
+    /// or [`None`] if `self.len() < pos`. Values outside
+    /// `0..self.alph_size()` have zero occurrences.
     ///
     /// # Arguments
     ///
@@ -659,8 +660,9 @@ where
         self.rank_range(0..pos, val)
     }
 
-    /// Returns the number of occurrence of `val` in the given `range`,
-    /// or [`None`] if `range` is out of bounds.
+    /// Returns the number of occurrences of `val` in the given `range`,
+    /// or [`None`] if `range` is out of bounds. Values outside
+    /// `0..self.alph_size()` have zero occurrences.
     ///
     /// # Arguments
     ///
@@ -702,6 +704,9 @@ where
         }
         if self.len() < range.end {
             return None;
+        }
+        if val >= self.alph_size {
+            return Some(0);
         }
 
         let mut start_pos = range.start;
@@ -826,7 +831,7 @@ where
             for (i, &pos) in chunk.iter().enumerate() {
                 if len < pos {
                     out[lo + i] = None;
-                } else if pos == 0 {
+                } else if pos == 0 || values[lo + i] >= self.alph_size {
                     out[lo + i] = Some(0);
                 } else {
                     start[n_active] = 0;
@@ -998,7 +1003,11 @@ where
             }
 
             for j in 0..n {
-                out[lo + j] = Some(end[j] - start[j]);
+                out[lo + j] = if chunk[j] < self.alph_size {
+                    Some(end[j] - start[j])
+                } else {
+                    Some(0)
+                };
             }
         }
 
@@ -1006,7 +1015,8 @@ where
     }
 
     /// Returns the occurrence position of `k`-th `val`,
-    /// or [`None`] if there is no such an occurrence.
+    /// or [`None`] if there is no such occurrence. Values outside
+    /// `0..self.alph_size()` are absent.
     ///
     /// # Arguments
     ///
@@ -1042,6 +1052,9 @@ where
     /// ```
     #[inline(always)]
     pub fn select(&self, k: usize, val: usize) -> Option<usize> {
+        if val >= self.alph_size {
+            return None;
+        }
         self.select_helper(k, val, 0, 0)
     }
 
@@ -1425,7 +1438,7 @@ impl<const SELECT1: bool, const SELECT0: bool> WaveletMatrix<Rank9SelIndex<SELEC
     where
         J: IntoIterator<Item = Bytes>,
     {
-        if meta.alph_width != utils::needed_bits(meta.alph_size) {
+        if meta.alph_width != utils::alphabet_width(meta.alph_size) {
             return Err(Error::invalid_metadata(format!(
                 "wavelet matrix alphabet width {} does not match alphabet size {}",
                 meta.alph_width, meta.alph_size
@@ -1488,6 +1501,12 @@ impl<I: BitVectorIndex> Serializable for WaveletMatrix<I> {
     }
 
     fn from_bytes(meta: Self::Meta, bytes: Bytes) -> Result<Self> {
+        if meta.alph_width != utils::alphabet_width(meta.alph_size) {
+            return Err(Error::invalid_metadata(format!(
+                "wavelet matrix alphabet width {} does not match alphabet size {}",
+                meta.alph_width, meta.alph_size
+            )));
+        }
         validate_section_bounds(meta.layers, &bytes, "wavelet layer-table")?;
         let handles_view = meta.layers.view(&bytes)?;
         if handles_view.len() != meta.alph_width {
@@ -1620,6 +1639,71 @@ mod test {
         let wm = builder.freeze::<Rank9SelIndex>().unwrap();
         assert_eq!(wm.len(), text.len());
         assert_eq!(wm.access(2), Some('n' as usize));
+    }
+
+    #[test]
+    fn alphabet_width_is_minimal_at_cardinality_boundaries() {
+        for &(alph_size, expected_width) in &[
+            (0usize, 1usize),
+            (1, 1),
+            (2, 1),
+            (3, 2),
+            (4, 2),
+            (255, 8),
+            (256, 8),
+            (257, 9),
+        ] {
+            let values: Vec<usize> = if alph_size == 0 {
+                Vec::new()
+            } else {
+                (0..alph_size.min(16)).collect()
+            };
+            let (_area, wm) = build_wm(alph_size, &values);
+            assert_eq!(wm.alph_width(), expected_width, "alphabet {alph_size}");
+        }
+    }
+
+    #[test]
+    fn out_of_alphabet_queries_do_not_alias_power_of_two_codes() {
+        let (_empty_area, empty) = build_wm(0, &[]);
+        assert_eq!(empty.alph_width(), 1);
+        assert_eq!(empty.rank(0, 0), Some(0));
+        assert_eq!(empty.select(0, 0), None);
+
+        let (_singleton_area, singleton) = build_wm(1, &[0, 0, 0]);
+        assert_eq!(singleton.alph_width(), 1);
+        assert_eq!(singleton.rank(3, 0), Some(3));
+        assert_eq!(singleton.rank(3, 1), Some(0));
+        assert_eq!(singleton.select(0, 1), None);
+
+        let values = [0usize, 1, 2, 3, 0, 2, 0, 3, 1];
+        let (_area, wm) = build_wm(4, &values);
+        assert_eq!(wm.alph_width(), 2);
+
+        for value in [4usize, 8, usize::MAX] {
+            assert_eq!(wm.rank(values.len(), value), Some(0));
+            assert_eq!(wm.rank_range(1..values.len(), value), Some(0));
+            assert_eq!(wm.select(0, value), None);
+            assert_eq!(wm.rank(values.len() + 1, value), None);
+        }
+
+        // Exercise the layer-major path (the scalar fallback handles batches
+        // shorter than MIN_BATCH) with both valid and invalid positions.
+        let positions = [values.len(); 16];
+        let probes = [4usize, 8, usize::MAX, 0, 1, 2, 3, 4];
+        let query_values: Vec<usize> = probes.iter().copied().cycle().take(16).collect();
+        let mut out = [None; 16];
+        wm.rank_batch_into(&positions, &query_values, &mut out)
+            .unwrap();
+        for (actual, &value) in out.iter().zip(&query_values) {
+            assert_eq!(*actual, wm.rank(values.len(), value));
+        }
+
+        wm.rank_range_batch_into(1..values.len(), &query_values, &mut out)
+            .unwrap();
+        for (actual, &value) in out.iter().zip(&query_values) {
+            assert_eq!(*actual, wm.rank_range(1..values.len(), value));
+        }
     }
 
     /// Deterministic PRNG (splitmix64) for randomized tests without deps.

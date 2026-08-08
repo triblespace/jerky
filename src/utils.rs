@@ -20,6 +20,28 @@ pub fn needed_bits(x: usize) -> usize {
     broadword::msb(x as u64).map_or(1, |n| n + 1)
 }
 
+/// Returns the minimum number of bits needed for codes in `0..size`.
+///
+/// Wavelet matrices retain one layer for empty and singleton alphabets. For
+/// larger alphabets this is $`\lceil \log_2(size) \rceil`$. In particular, a
+/// power-of-two cardinality does not need a redundant leading-zero layer.
+///
+/// # Examples
+///
+/// ```
+/// use jerky::utils::alphabet_width;
+///
+/// assert_eq!(alphabet_width(0), 1);
+/// assert_eq!(alphabet_width(1), 1);
+/// assert_eq!(alphabet_width(2), 1);
+/// assert_eq!(alphabet_width(255), 8);
+/// assert_eq!(alphabet_width(256), 8);
+/// assert_eq!(alphabet_width(257), 9);
+/// ```
+pub fn alphabet_width(size: usize) -> usize {
+    needed_bits(size.saturating_sub(1))
+}
+
 /// Returns `ceil(x / y)`.
 ///
 /// # Examples

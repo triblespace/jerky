@@ -322,31 +322,38 @@ fn wm_rank_one(
     pos: u32,
     val: u32,
     n: u32,
+    alph_size: u32,
     wpl: u32,
     bpl: u32,
     num_layers: u32,
 ) -> u32 {
     let mut result = 0xFFFF_FFFFu32;
     if pos <= n {
-        let mut s = u32::new(0);
-        let mut e = pos;
-        let mut l = u32::new(0);
-        while l < num_layers {
-            let wo = l * wpl;
-            let bo = l * bpl;
-            let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
-            let rs = layer_rank1(words, counts, wo, bo, s);
-            let re = layer_rank1(words, counts, wo, bo, e);
-            if bit == 1u32 {
-                s = rs + zeros[l as usize];
-                e = re + zeros[l as usize];
-            } else {
-                s -= rs;
-                e -= re;
+        // An out-of-alphabet value has zero occurrences. Checking it before
+        // descent is essential for minimal-width matrices: otherwise `D` at
+        // a power-of-two alphabet aliases code zero through the width mask.
+        result = 0u32;
+        if val < alph_size {
+            let mut s = u32::new(0);
+            let mut e = pos;
+            let mut l = u32::new(0);
+            while l < num_layers {
+                let wo = l * wpl;
+                let bo = l * bpl;
+                let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
+                let rs = layer_rank1(words, counts, wo, bo, s);
+                let re = layer_rank1(words, counts, wo, bo, e);
+                if bit == 1u32 {
+                    s = rs + zeros[l as usize];
+                    e = re + zeros[l as usize];
+                } else {
+                    s -= rs;
+                    e -= re;
+                }
+                l += 1u32;
             }
-            l += 1u32;
+            result = e - s;
         }
-        result = e - s;
     }
     result
 }
@@ -361,6 +368,7 @@ fn wm_rank_kernel(
     val_q: &Array<u32>,
     out: &mut Array<u32>,
     n: u32,
+    alph_size: u32,
     wpl: u32,
     bpl: u32,
     num_layers: u32,
@@ -368,7 +376,7 @@ fn wm_rank_kernel(
     let t = ABSOLUTE_POS;
     if t < pos_q.len() {
         out[t] = wm_rank_one(
-            words, counts, zeros, pos_q[t], val_q[t], n, wpl, bpl, num_layers,
+            words, counts, zeros, pos_q[t], val_q[t], n, alph_size, wpl, bpl, num_layers,
         );
     }
 }
@@ -384,6 +392,7 @@ fn wm_rank_dynamic_kernel(
     out: &mut Array<u32>,
     batch_meta: &Array<u32>,
     n: u32,
+    alph_size: u32,
     wpl: u32,
     bpl: u32,
     num_layers: u32,
@@ -401,7 +410,7 @@ fn wm_rank_dynamic_kernel(
         && t < out.len()
     {
         out[t] = wm_rank_one(
-            words, counts, zeros, pos_q[t], val_q[t], n, wpl, bpl, num_layers,
+            words, counts, zeros, pos_q[t], val_q[t], n, alph_size, wpl, bpl, num_layers,
         );
     }
 }
@@ -498,6 +507,7 @@ fn wm_select_kernel(
     val_q: &Array<u32>,
     out: &mut Array<u32>,
     n: u32,
+    alph_size: u32,
     wpl: u32,
     bpl: u32,
     num_layers: u32,
@@ -506,43 +516,47 @@ fn wm_select_kernel(
     if t < k_q.len() {
         let k = k_q[t];
         let val = val_q[t];
-        // Descend, tracking val's bucket [s, e) per layer.
-        let mut s = u32::new(0);
-        let mut e = n;
-        let mut l = u32::new(0);
-        while l < num_layers {
-            let wo = l * wpl;
-            let bo = l * bpl;
-            let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
-            let rs = layer_rank1(words, counts, wo, bo, s);
-            let re = layer_rank1(words, counts, wo, bo, e);
-            if bit == 1u32 {
-                s = rs + zeros[l as usize];
-                e = re + zeros[l as usize];
-            } else {
-                s -= rs;
-                e -= re;
-            }
-            l += 1u32;
-        }
-        if k >= e - s {
+        if val >= alph_size {
             out[t] = 0xFFFF_FFFFu32;
         } else {
-            // Ascend from the k-th element of the bottom bucket.
-            let mut p = s + k;
-            let mut d = num_layers;
-            while d > 0u32 {
-                d -= 1u32;
-                let wo = d * wpl;
-                let bo = d * bpl;
-                let bit = (val >> (num_layers - 1u32 - d)) & 1u32;
+            // Descend, tracking val's bucket [s, e) per layer.
+            let mut s = u32::new(0);
+            let mut e = n;
+            let mut l = u32::new(0);
+            while l < num_layers {
+                let wo = l * wpl;
+                let bo = l * bpl;
+                let bit = (val >> (num_layers - 1u32 - l)) & 1u32;
+                let rs = layer_rank1(words, counts, wo, bo, s);
+                let re = layer_rank1(words, counts, wo, bo, e);
                 if bit == 1u32 {
-                    p = layer_select1(words, counts, wo, bo, p - zeros[d as usize], bpl);
+                    s = rs + zeros[l as usize];
+                    e = re + zeros[l as usize];
                 } else {
-                    p = layer_select0(words, counts, wo, bo, p, bpl);
+                    s -= rs;
+                    e -= re;
                 }
+                l += 1u32;
             }
-            out[t] = p;
+            if k >= e - s {
+                out[t] = 0xFFFF_FFFFu32;
+            } else {
+                // Ascend from the k-th element of the bottom bucket.
+                let mut p = s + k;
+                let mut d = num_layers;
+                while d > 0u32 {
+                    d -= 1u32;
+                    let wo = d * wpl;
+                    let bo = d * bpl;
+                    let bit = (val >> (num_layers - 1u32 - d)) & 1u32;
+                    if bit == 1u32 {
+                        p = layer_select1(words, counts, wo, bo, p - zeros[d as usize], bpl);
+                    } else {
+                        p = layer_select0(words, counts, wo, bo, p, bpl);
+                    }
+                }
+                out[t] = p;
+            }
         }
     }
 }
@@ -1614,7 +1628,8 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
 
     /// Batched [`WaveletMatrix::rank`]: for each `(positions[i], values[i])`
     /// pair, returns the number of occurrences of the value in `0..pos`, or
-    /// `None` where `pos > len()`.
+    /// `None` where `pos > len()`. Values outside the matrix alphabet return
+    /// `Some(0)` at valid positions.
     ///
     /// For a single symbol over many positions, pass `values` filled with
     /// that symbol. One dispatch, one sync, regardless of batch size.
@@ -1631,7 +1646,10 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
             )));
         }
         let pos_q: Vec<u32> = positions.iter().map(|&p| clamp_u32(p)).collect();
-        let val_q: Vec<u32> = values.iter().map(|&v| v as u32).collect();
+        let val_q: Vec<u32> = values
+            .iter()
+            .map(|&v| alphabet_code(v, self.alph_size))
+            .collect();
         let positions = self.upload_u32(&pos_q)?;
         let values = self.upload_u32(&val_q)?;
         let output = self.rank_batch_resident(&positions, &values)?;
@@ -1676,7 +1694,8 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
     /// This method only launches work; it performs no host transfer or
     /// synchronization. All three buffers must have equal lengths and belong
     /// to this matrix's [`GpuContext`]. Each output is the raw `u32` rank, with
-    /// `u32::MAX` denoting an out-of-range position.
+    /// `u32::MAX` denoting an out-of-range position and zero denoting an
+    /// out-of-alphabet value at a valid position.
     ///
     /// # Errors
     ///
@@ -1715,6 +1734,7 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
                 values.input_arg(),
                 output.output_arg(),
                 self.len,
+                self.alph_size as u32,
                 self.wpl,
                 self.bpl,
                 self.alph_width,
@@ -1775,6 +1795,7 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
                 output.output_arg(),
                 meta.input_arg(),
                 self.len,
+                self.alph_size as u32,
                 self.wpl,
                 self.bpl,
                 self.alph_width,
@@ -1785,7 +1806,7 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
 
     /// Batched [`WaveletMatrix::select`]: for each `(ks[i], values[i])` pair,
     /// returns the position of the `k`-th occurrence of the value, or `None`
-    /// where the value occurs at most `k` times.
+    /// where the value occurs at most `k` times or lies outside the alphabet.
     ///
     /// One dispatch, one sync, regardless of batch size.
     ///
@@ -1807,7 +1828,10 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
             return Ok(vec![None; ks.len()]);
         }
         let k_q: Vec<u32> = ks.iter().map(|&k| clamp_u32(k)).collect();
-        let val_q: Vec<u32> = values.iter().map(|&v| v as u32).collect();
+        let val_q: Vec<u32> = values
+            .iter()
+            .map(|&v| alphabet_code(v, self.alph_size))
+            .collect();
         let batch = k_q.len();
         let k_h = self.context.client.create_from_slice(u32::as_bytes(&k_q));
         let val_h = self.context.client.create_from_slice(u32::as_bytes(&val_q));
@@ -1825,6 +1849,7 @@ impl<R: Runtime> GpuWaveletMatrix<R> {
                 ArrayArg::from_raw_parts(val_h, batch),
                 ArrayArg::from_raw_parts(out_h.clone(), batch),
                 self.len,
+                self.alph_size as u32,
                 self.wpl,
                 self.bpl,
                 self.alph_width,
@@ -1994,6 +2019,17 @@ fn decode_results(values: Vec<u32>) -> Vec<Option<usize>> {
 /// necessarily out of range on device (`len < u32::MAX`) and maps to `None`.
 fn clamp_u32(x: usize) -> u32 {
     x.min(u32::MAX as usize) as u32
+}
+
+/// Encodes an alphabet member for a device query. `u32::MAX` is outside every
+/// supported alphabet and therefore remains an unambiguous miss sentinel even
+/// when a host `usize` would otherwise truncate to a valid code.
+fn alphabet_code(value: usize, alphabet_size: usize) -> u32 {
+    if value < alphabet_size {
+        value as u32
+    } else {
+        NONE_SENTINEL
+    }
 }
 
 fn validate_batch_len(len: usize) -> Result<()> {

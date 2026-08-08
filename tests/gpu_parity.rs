@@ -160,7 +160,8 @@ fn check_parity(wm: &WaveletMatrix<Rank9SelIndex>, ints: &[usize], queries: usiz
                 _ => sm(&mut st) as usize % (n + 2),
             };
             // Mix stored values, arbitrary in-alphabet values, and values
-            // beyond the alphabet (CPU aliases them through the width mask).
+            // beyond the alphabet (which must have rank zero, never alias a
+            // low code through the matrix width).
             let val = match i % 4 {
                 0 if n > 0 => ints[sm(&mut st) as usize % n],
                 1 => sigma + (sm(&mut st) as usize % (sigma + 1)),
@@ -176,32 +177,28 @@ fn check_parity(wm: &WaveletMatrix<Rank9SelIndex>, ints: &[usize], queries: usiz
     }
 
     // select: in-range ks against stored values (full descend+ascend path),
-    // plus out-of-range ks, where the GPU must report None. The CPU walk is
-    // compared only for in-range ks (its out-of-range behavior relies on
-    // per-layer select bounds and is exercised by its own test suite).
-    let selects: Vec<(usize, usize, bool)> = (0..queries)
-        .map(|_| {
-            if n > 0 && sm(&mut st) % 4 != 0 {
+    // exhausted in-alphabet values, and values outside the alphabet.
+    let selects: Vec<(usize, usize)> = (0..queries)
+        .map(|i| {
+            if i % 4 == 0 {
+                (0, sigma + (sm(&mut st) as usize % (sigma + 1)))
+            } else if n > 0 && sm(&mut st) % 4 != 0 {
                 let val = ints[sm(&mut st) as usize % n];
                 let occ = wm.rank(n, val).unwrap();
-                (sm(&mut st) as usize % occ, val, true)
+                (sm(&mut st) as usize % occ, val)
             } else {
                 // Absent or exhausted: k >= occurrences by construction.
                 let val = sm(&mut st) as usize % sigma;
                 let occ = wm.rank(n, val).unwrap_or(0);
-                (occ + (sm(&mut st) as usize % 3), val, false)
+                (occ + (sm(&mut st) as usize % 3), val)
             }
         })
         .collect();
-    let ks: Vec<_> = selects.iter().map(|&(k, _, _)| k).collect();
-    let vs: Vec<_> = selects.iter().map(|&(_, v, _)| v).collect();
+    let ks: Vec<_> = selects.iter().map(|&(k, _)| k).collect();
+    let vs: Vec<_> = selects.iter().map(|&(_, v)| v).collect();
     let gpu_res = gpu.select_batch(&ks, &vs).unwrap();
-    for (i, (&(k, v, in_range), g)) in selects.iter().zip(&gpu_res).enumerate() {
-        if in_range {
-            assert_eq!(wm.select(k, v), *g, "select({k}, {v}) [{}]", ctx(i));
-        } else {
-            assert_eq!(*g, None, "select({k}, {v}) beyond occurrences [{}]", ctx(i));
-        }
+    for (i, (&(k, v), g)) in selects.iter().zip(&gpu_res).enumerate() {
+        assert_eq!(wm.select(k, v), *g, "select({k}, {v}) [{}]", ctx(i));
     }
 
     // quantile: random ranges (valid, empty, inverted, out of bounds) with
@@ -281,6 +278,33 @@ fn parity_empty_batches() {
     assert_eq!(gpu.rank_batch(&[], &[]).unwrap(), Vec::new());
     assert_eq!(gpu.select_batch(&[], &[]).unwrap(), Vec::new());
     assert_eq!(gpu.quantile_batch(&[], &[]).unwrap(), Vec::new());
+}
+
+#[test]
+fn power_of_two_alphabet_does_not_alias_out_of_domain_values() {
+    let (_area, wm, _ints) = build(0xA11A_5100, 1024, 256);
+    assert_eq!(wm.alph_width(), 8);
+    let gpu = GpuWaveletMatrix::on_wgpu(&wm).unwrap();
+
+    let positions = [wm.len(), wm.len(), wm.len() + 1];
+    let values = [256usize, usize::MAX, 256];
+    assert_eq!(
+        gpu.rank_batch(&positions, &values).unwrap(),
+        vec![Some(0), Some(0), None]
+    );
+    assert_eq!(
+        gpu.select_batch(&[0, 0, 0], &values).unwrap(),
+        vec![None, None, None]
+    );
+
+    // Resident callers bypass host encoding, so the kernel itself must enforce
+    // the alphabet bound too.
+    let positions = gpu.upload_u32(&[wm.len() as u32, wm.len() as u32]).unwrap();
+    let values = gpu.upload_u32(&[256, u32::MAX]).unwrap();
+    assert_eq!(
+        gpu.rank_batch_resident(&positions, &values).unwrap().read(),
+        vec![0, 0]
+    );
 }
 
 #[test]
